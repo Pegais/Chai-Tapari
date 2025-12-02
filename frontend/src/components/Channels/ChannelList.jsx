@@ -8,7 +8,8 @@
 
 import React, { useState } from "react"
 import { useNavigate } from "react-router-dom"
-import { Hash, Plus } from "lucide-react"
+import { motion, AnimatePresence } from "framer-motion"
+import { Hash, Plus, ChevronDown, ChevronUp } from "lucide-react"
 import { mockChannels } from "../../data/mockData"
 import CardNav from "../ui/CardNav"
 import CreateChannel from "./CreateChannel"
@@ -20,6 +21,7 @@ function ChannelList() {
   const [channels] = useState(mockChannels)
   const [selectedChannelId, setSelectedChannelId] = useState("channel1")
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [isCollapsed, setIsCollapsed] = useState(false)
 
   /**
    * Handle channel selection
@@ -71,35 +73,60 @@ function ChannelList() {
   }
 
   return (
-    <div className="h-full flex flex-col">
-      {/* Header */}
-      <div className="p-4 border-b border-primary/20">
+    <div className="h-full flex flex-col bg-card/95 backdrop-blur-sm">
+      {/* Header with Collapse Button */}
+      <div className="p-4 border-b border-primary/20 flex-shrink-0">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
             Channels
           </h2>
-          <Button
-            size="icon"
-            variant="ghost"
-            onClick={() => setShowCreateModal(true)}
-            title="Create Channel"
-            className="hover:bg-primary/10"
-          >
-            <Plus className="h-4 w-4" />
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={() => setIsCollapsed(!isCollapsed)}
+              title={isCollapsed ? "Expand" : "Collapse"}
+              className="hover:bg-primary/10"
+            >
+              {isCollapsed ? (
+                <ChevronDown className="h-4 w-4" />
+              ) : (
+                <ChevronUp className="h-4 w-4" />
+              )}
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={() => setShowCreateModal(true)}
+              title="Create Channel"
+              className="hover:bg-primary/10"
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
       </div>
 
-      {/* CardNav with Search */}
-      <div className="flex-1 overflow-hidden">
-        <CardNav
-          items={channels}
-          onItemSelect={handleChannelSelect}
-          selectedItemId={selectedChannelId}
-          renderItem={renderChannelItem}
-          searchPlaceholder="Search channels..."
-        />
-      </div>
+      {/* Collapsible CardNav with Search */}
+      <AnimatePresence>
+        {!isCollapsed && (
+          <motion.div
+            className="flex-1 overflow-hidden"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.3, ease: "easeInOut" }}
+          >
+            <CardNav
+              items={channels}
+              onItemSelect={handleChannelSelect}
+              selectedItemId={selectedChannelId}
+              renderItem={renderChannelItem}
+              searchPlaceholder="Search channels..."
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Create Channel Modal */}
       {showCreateModal && (

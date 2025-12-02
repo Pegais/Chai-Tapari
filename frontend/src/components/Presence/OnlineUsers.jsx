@@ -24,10 +24,10 @@ function OnlineUsers() {
   const offlineUsers = mockUsers.filter((user) => !isUserOnline(user._id))
 
   return (
-    <div className="h-full flex flex-col">
-      {/* Header */}
+    <div className="h-full flex flex-col overflow-hidden">
+      {/* Header - Fixed */}
       <motion.div
-        className="p-4 border-b border-primary/20"
+        className="p-4 border-b border-primary/20 flex-shrink-0"
         initial={{ y: -10, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ delay: 0.1 }}
@@ -40,8 +40,8 @@ function OnlineUsers() {
         </p>
       </motion.div>
 
-      {/* Users List */}
-      <ScrollArea className="flex-1">
+      {/* Users List - Scrollable */}
+      <ScrollArea className="flex-1 min-h-0">
         <div className="p-2">
           {/* Online Users */}
           {onlineUsers.length > 0 && (

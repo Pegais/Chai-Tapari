@@ -6,15 +6,24 @@
  * Impact: User identity and quick access to important conversations
  */
 
-import React, { useState } from "react"
-import { motion } from "framer-motion"
-import { Star, StarOff } from "lucide-react"
+import React, { useState, useRef, useEffect } from "react"
+import { useNavigate } from "react-router-dom"
+import { motion, AnimatePresence } from "framer-motion"
+import { Star, StarOff, Hash, ChevronDown, Plus } from "lucide-react"
 import { Avatar, AvatarImage, AvatarFallback } from "../ui/avatar"
 import { mockCurrentUser, mockChannels } from "../../data/mockData"
+import CardNav from "../ui/CardNav"
+import CreateChannel from "../Channels/CreateChannel"
+import { Button } from "../ui/button"
 import { cn } from "../../lib/utils"
 
 function ProfileSection() {
+  const navigate = useNavigate()
   const [starredChannels, setStarredChannels] = useState(["channel1", "channel3"])
+  const [showChannels, setShowChannels] = useState(false)
+  const [selectedChannelId, setSelectedChannelId] = useState("channel1")
+  const [showCreateModal, setShowCreateModal] = useState(false)
+  const channelsRef = useRef(null)
 
   /**
    * Toggle channel star status
@@ -30,6 +39,74 @@ function ProfileSection() {
     )
   }
 
+  /**
+   * Handle channel selection
+   * Why: Navigate to selected channel
+   * How: Sets selected channel and navigates
+   * Impact: User can switch channels from profile section
+   */
+  const handleChannelSelect = (channelId) => {
+    setSelectedChannelId(channelId)
+    navigate(`/chat/${channelId}`)
+  }
+
+  /**
+   * Close channels dropdown when clicking outside
+   * Why: Better UX - dropdown closes when user clicks elsewhere
+   * How: Detects clicks outside dropdown element
+   * Impact: Intuitive dropdown behavior
+   */
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (channelsRef.current && !channelsRef.current.contains(event.target)) {
+        setShowChannels(false)
+      }
+    }
+
+    if (showChannels) {
+      document.addEventListener("mousedown", handleClickOutside)
+      return () => document.removeEventListener("mousedown", handleClickOutside)
+    }
+  }, [showChannels])
+
+  /**
+   * Custom render function for channel items
+   * Why: Customize channel display in card-nav
+   * How: Returns JSX for each channel
+   * Impact: Consistent channel presentation
+   */
+  const renderChannelItem = (channel, isSelected) => {
+    return (
+      <div className="flex items-center gap-3">
+        <div className={cn(
+          "p-2 rounded-md transition-colors",
+          isSelected ? "bg-primary/20" : "bg-muted/50"
+        )}>
+          <Hash className={cn(
+            "h-4 w-4",
+            isSelected ? "text-primary" : "text-muted-foreground"
+          )} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className={cn(
+            "font-semibold text-sm truncate",
+            isSelected ? "text-primary" : "text-foreground"
+          )}>
+            {channel.name}
+          </div>
+          {channel.description && (
+            <div className="text-xs text-muted-foreground truncate mt-1">
+              {channel.description}
+            </div>
+          )}
+          <div className="text-xs text-muted-foreground mt-1">
+            {channel.memberCount} members
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   // Get starred channels
   const starredChannelsList = mockChannels.filter((channel) =>
     starredChannels.includes(channel._id)
@@ -39,10 +116,10 @@ function ProfileSection() {
   const user = JSON.parse(localStorage.getItem("user")) || mockCurrentUser
 
   return (
-    <div className="h-full flex flex-col bg-card/95 backdrop-blur-sm border-r border-primary/20">
-      {/* Profile Header */}
+    <div className="h-full flex flex-col bg-card/95 backdrop-blur-sm border-r border-primary/20 overflow-hidden">
+      {/* Profile Header - Fixed */}
       <motion.div
-        className="p-6 border-b border-primary/20"
+        className="p-6 border-b border-primary/20 flex-shrink-0"
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1 }}
@@ -93,10 +170,10 @@ function ProfileSection() {
         </motion.p>
       </motion.div>
 
-      {/* Starred Channels Section */}
-      <div className="flex-1 overflow-hidden flex flex-col">
+      {/* Starred Channels Section - Scrollable */}
+      <div className="flex-1 overflow-hidden flex flex-col min-h-0">
         <motion.div
-          className="p-4 border-b border-primary/20"
+          className="p-4 border-b border-primary/20 flex-shrink-0"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.4 }}
@@ -107,7 +184,7 @@ function ProfileSection() {
           </h3>
         </motion.div>
 
-        <div className="flex-1 overflow-y-auto p-2">
+        <div className="flex-1 overflow-y-auto p-2 min-h-0">
           {starredChannelsList.length > 0 ? (
             <motion.div
               className="space-y-2"
@@ -164,6 +241,92 @@ function ProfileSection() {
           )}
         </div>
       </div>
+
+      {/* Channels Section - Fixed at bottom left */}
+      <div className="border-t border-primary/20 flex-shrink-0" ref={channelsRef}>
+        <button
+          onClick={() => setShowChannels(!showChannels)}
+          className="w-full p-4 flex items-center justify-between hover:bg-accent/20 transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            <Hash className="h-5 w-5 text-primary" />
+            <span className="font-semibold text-sm">Channels</span>
+          </div>
+          <ChevronDown className={cn(
+            "h-4 w-4 transition-transform text-muted-foreground",
+            showChannels && "rotate-180"
+          )} />
+        </button>
+
+        {/* Channels Dropdown */}
+        <AnimatePresence>
+          {showChannels && (
+            <>
+              {/* Backdrop - Makes background inaccessible */}
+              <motion.div
+                className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setShowChannels(false)}
+              />
+              
+              {/* Channels Panel - Fixed at bottom left */}
+              <motion.div
+                className="absolute bottom-0 left-0 w-64 h-[400px] bg-card/95 backdrop-blur-sm border-t border-r border-primary/20 shadow-2xl z-50 overflow-hidden"
+                initial={{ opacity: 0, y: 20, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 20, scale: 0.95 }}
+                transition={{ type: "spring", stiffness: 300, damping: 25 }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="h-full flex flex-col">
+                  {/* Header with Create Button */}
+                  <div className="p-4 border-b border-primary/20 flex items-center justify-between flex-shrink-0">
+                    <h3 className="text-sm font-semibold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
+                      All Channels
+                    </h3>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => {
+                        setShowChannels(false)
+                        setShowCreateModal(true)
+                      }}
+                      className="h-7 w-7 hover:bg-primary/10"
+                      title="Create Channel"
+                    >
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                  </div>
+
+                  {/* CardNav Content */}
+                  <div className="flex-1 overflow-hidden">
+                    <CardNav
+                      items={mockChannels}
+                      onItemSelect={handleChannelSelect}
+                      selectedItemId={selectedChannelId}
+                      renderItem={renderChannelItem}
+                      searchPlaceholder="Search channels..."
+                    />
+                  </div>
+                </div>
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* Create Channel Modal */}
+      {showCreateModal && (
+        <CreateChannel
+          onClose={() => setShowCreateModal(false)}
+          onSuccess={(newChannel) => {
+            // TODO: Add new channel to list
+            setShowCreateModal(false)
+          }}
+        />
+      )}
     </div>
   )
 }

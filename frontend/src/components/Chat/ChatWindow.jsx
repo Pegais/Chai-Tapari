@@ -57,14 +57,14 @@ function ChatWindow() {
 
   return (
     <motion.div
-      className="flex-1 flex flex-col h-full"
+      className="h-full flex flex-col overflow-hidden"
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ type: "spring", stiffness: 100 }}
     >
-      {/* Channel Header */}
+      {/* Channel Header - Fixed */}
       <motion.div
-        className="border-b border-primary/20 p-4 bg-card/95 backdrop-blur-sm"
+        className="border-b border-primary/20 p-4 bg-card/95 backdrop-blur-sm flex-shrink-0"
         initial={{ y: -10, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ delay: 0.1 }}
@@ -75,19 +75,21 @@ function ChatWindow() {
         <p className="text-sm text-muted-foreground">{channel.description}</p>
       </motion.div>
 
-      {/* Messages List */}
-      <div className="flex-1 overflow-hidden">
+      {/* Messages List - Scrollable (takes remaining space) */}
+      <div className="flex-1 overflow-y-auto min-h-0">
         <MessageList messages={messages} channelId={channelId} />
       </div>
 
-      {/* Typing Indicator */}
+      {/* Typing Indicator - Fixed above input */}
       {typingUsers.length > 0 && (
-        <TypingIndicator typingUsers={typingUsers} />
+        <div className="flex-shrink-0">
+          <TypingIndicator typingUsers={typingUsers} />
+        </div>
       )}
 
-      {/* Message Input */}
+      {/* Message Input - Fixed at bottom (always in viewport) */}
       <motion.div
-        className="border-t border-primary/20 p-4 bg-card/95 backdrop-blur-sm"
+        className="border-t border-primary/20 p-4 bg-card/95 backdrop-blur-sm flex-shrink-0"
         initial={{ y: 10, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ delay: 0.2 }}

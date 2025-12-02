@@ -9,7 +9,6 @@
 import React, { useRef, useEffect } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import MessageItem from "./MessageItem"
-import { ScrollArea } from "../ui/scroll-area"
 import { format } from "date-fns"
 
 function MessageList({ messages, channelId }) {
@@ -76,8 +75,8 @@ function MessageList({ messages, channelId }) {
   }
 
   return (
-    <ScrollArea className="flex-1 h-full" ref={scrollRef}>
-      <div className="p-4 space-y-4">
+    <div className="h-full overflow-y-auto overflow-x-hidden" ref={scrollRef}>
+      <div className="p-4 space-y-4 max-w-full">
         <AnimatePresence>
           {groupedMessages.map((group, index) => {
             if (group.type === "date-separator") {
@@ -117,7 +116,7 @@ function MessageList({ messages, channelId }) {
         </AnimatePresence>
         <div ref={messagesEndRef} />
       </div>
-    </ScrollArea>
+    </div>
   )
 }
 

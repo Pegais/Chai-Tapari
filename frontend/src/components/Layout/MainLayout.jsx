@@ -9,7 +9,7 @@
 import React from "react"
 import { Outlet } from "react-router-dom"
 import { motion } from "framer-motion"
-import ChannelList from "../Channels/ChannelList"
+import Header from "./Header"
 import OnlineUsers from "../Presence/OnlineUsers"
 import ProfileSection from "../Profile/ProfileSection"
 
@@ -45,41 +45,37 @@ const rightSidebarVariants = {
 
 function MainLayout() {
   return (
-    <div className="h-screen flex bg-background relative z-10">
-      {/* Left Sidebar - Profile Section */}
-      <motion.aside
-        className="w-72 border-r border-primary/20 flex-shrink-0"
-        variants={sidebarVariants}
-        initial="hidden"
-        animate="visible"
-      >
-        <ProfileSection />
-      </motion.aside>
+    <div className="h-screen w-screen flex flex-col bg-background relative z-10 overflow-hidden">
+      {/* Header with Channel Navigation */}
+      {/* <Header /> */}
 
-      {/* Channels Sidebar */}
-      <motion.aside
-        className="w-64 border-r border-primary/20 bg-card/95 backdrop-blur-sm flex-shrink-0"
-        variants={sidebarVariants}
-        initial="hidden"
-        animate="visible"
-      >
-        <ChannelList />
-      </motion.aside>
+      {/* Body: Three Column Layout */}
+      <div className="flex-1 flex overflow-hidden min-h-0">
+        {/* Left: Profile Section */}
+        <motion.aside
+          className="w-64 border-r border-primary/20 flex-shrink-0 overflow-hidden"
+          variants={sidebarVariants}
+          initial="hidden"
+          animate="visible"
+        >
+          <ProfileSection />
+        </motion.aside>
 
-      {/* Main Content Area - Chat Window */}
-      <main className="flex-1 flex flex-col overflow-hidden">
-        <Outlet />
-      </main>
+        {/* Center: Chat Window - Reduced width */}
+        <main className="flex-1 flex flex-col overflow-hidden min-w-0 max-w-full">
+          <Outlet />
+        </main>
 
-      {/* Right Sidebar - Online Users */}
-      <motion.aside
-        className="w-64 border-l border-primary/20 bg-card/95 backdrop-blur-sm flex-shrink-0"
-        variants={rightSidebarVariants}
-        initial="hidden"
-        animate="visible"
-      >
-        <OnlineUsers />
-      </motion.aside>
+        {/* Right: Online Users */}
+        <motion.aside
+          className="w-56 border-l border-primary/20 bg-card/95 backdrop-blur-sm flex-shrink-0 overflow-hidden"
+          variants={rightSidebarVariants}
+          initial="hidden"
+          animate="visible"
+        >
+          <OnlineUsers />
+        </motion.aside>
+      </div>
     </div>
   )
 }
