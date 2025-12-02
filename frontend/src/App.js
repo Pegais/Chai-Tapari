@@ -10,11 +10,11 @@ import React from "react"
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { AnimatePresence } from "framer-motion"
+import Home from "./components/Home/Home"
 import Login from "./components/Auth/Login"
 import Signup from "./components/Auth/Signup"
 import MainLayout from "./components/Layout/MainLayout"
 import ChatWindow from "./components/Chat/ChatWindow"
-import FloatingLines from "./components/ui/FloatingLines"
 
 // Create React Query client for data fetching and caching
 // Why: Centralized data management with caching and refetching
@@ -50,11 +50,11 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
-        {/* Floating Lines Background - Applied to entire application */}
-        <FloatingLines />
-        
         <AnimatePresence mode="wait">
           <Routes>
+            {/* Home Page - Public Route */}
+            <Route path="/" element={<Home />} />
+            
             {/* Public Routes */}
             <Route path="/login" element={<Login />} />
             <Route path="/signup" element={<Signup />} />
@@ -71,9 +71,6 @@ function App() {
               <Route index element={<Navigate to="/chat/channel1" replace />} />
               <Route path=":channelId" element={<ChatWindow />} />
             </Route>
-            
-            {/* Default redirect */}
-            <Route path="/" element={<Navigate to="/chat" replace />} />
           </Routes>
         </AnimatePresence>
       </BrowserRouter>

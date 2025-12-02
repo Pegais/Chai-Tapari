@@ -12,6 +12,7 @@ import { motion, AnimatePresence } from "framer-motion"
 import { Button } from "../ui/button"
 import { Input } from "../ui/input"
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "../ui/card"
+import FloatingLinesBackground from "../ui/FloatingLinesBackground"
 
 // Animation variants for page entrance
 // Why: Smooth, professional page transitions
@@ -80,56 +81,60 @@ function Login() {
   }
 
   return (
-    <motion.div
-      className="min-h-screen flex items-center justify-center p-4 relative z-10"
-      variants={containerVariants}
-      initial="hidden"
-      animate="visible"
-    >
+    <div className="min-h-screen relative overflow-hidden">
+      {/* Floating Lines Background */}
+      <FloatingLinesBackground />
+      
+      <motion.div
+        className="relative z-10 min-h-screen flex items-center justify-center p-4"
+        variants={containerVariants}
+        initial="hidden"
+        animate="visible"
+      >
       <motion.div variants={itemVariants}>
-        <Card className="w-full max-w-md backdrop-blur-sm bg-card/95 shadow-xl border-primary/20">
-          <CardHeader className="space-y-1">
+        <Card className="w-full max-w-2xl backdrop-blur-sm bg-card/95 shadow-xl border-primary/20">
+          <CardHeader className="space-y-4 pb-8">
             <motion.div variants={itemVariants}>
-              <CardTitle className="text-2xl font-bold text-center bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
+              <CardTitle className="text-4xl md:text-5xl font-bold text-center bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
                 Welcome Back
               </CardTitle>
             </motion.div>
             <motion.div variants={itemVariants}>
-              <CardDescription className="text-center">
+              <CardDescription className="text-center text-lg">
                 Sign in to your Chai Tapri account
               </CardDescription>
             </motion.div>
           </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <motion.div className="space-y-2" variants={itemVariants}>
-                <label htmlFor="email" className="text-sm font-medium">
-                  Email
+          <CardContent className="px-8 pb-8">
+            <form onSubmit={handleSubmit} className="space-y-8">
+              <motion.div className="space-y-4" variants={itemVariants}>
+                <label htmlFor="email" className="text-base font-semibold block">
+                  Email Address
                 </label>
                 <Input
                   id="email"
                   type="email"
-                  placeholder="you@example.com"
+                  placeholder="Enter your email address"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
                   disabled={loading}
-                  className="bg-background/50 border-primary/20 focus:border-primary"
+                  className="h-14 text-base bg-background/50 border-primary/20 focus:border-primary px-4"
                 />
               </motion.div>
-              <motion.div className="space-y-2" variants={itemVariants}>
-                <label htmlFor="password" className="text-sm font-medium">
+              <motion.div className="space-y-4" variants={itemVariants}>
+                <label htmlFor="password" className="text-base font-semibold block">
                   Password
                 </label>
                 <Input
                   id="password"
                   type="password"
-                  placeholder="••••••••"
+                  placeholder="Enter your password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
                   disabled={loading}
-                  className="bg-background/50 border-primary/20 focus:border-primary"
+                  className="h-14 text-base bg-background/50 border-primary/20 focus:border-primary px-4"
                 />
               </motion.div>
               <AnimatePresence>
@@ -138,23 +143,27 @@ function Login() {
                     initial={{ opacity: 0, y: -10 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -10 }}
-                    className="text-sm text-destructive bg-destructive/10 p-3 rounded-md border border-destructive/20"
+                    className="text-base text-destructive bg-destructive/10 p-4 rounded-md border border-destructive/20"
                   >
                     {error}
                   </motion.div>
                 )}
               </AnimatePresence>
               <motion.div variants={itemVariants} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-                <Button type="submit" className="w-full bg-gradient-to-r from-primary to-accent hover:from-primary/90 hover:to-accent/90" disabled={loading}>
+                <Button 
+                  type="submit" 
+                  className="w-full h-14 text-lg font-bold bg-gradient-to-r from-primary to-accent hover:from-primary/90 hover:to-accent/90" 
+                  disabled={loading}
+                >
                   {loading ? "Signing in..." : "Sign In"}
                 </Button>
               </motion.div>
-              <motion.div className="text-center text-sm text-muted-foreground" variants={itemVariants}>
+              <motion.div className="text-center text-base text-muted-foreground pt-4" variants={itemVariants}>
                 Don't have an account?{" "}
                 <button
                   type="button"
                   onClick={() => navigate("/signup")}
-                  className="text-primary hover:text-accent transition-colors"
+                  className="text-primary hover:text-accent transition-colors font-semibold"
                 >
                   Sign up
                 </button>
@@ -163,7 +172,8 @@ function Login() {
           </CardContent>
         </Card>
       </motion.div>
-    </motion.div>
+      </motion.div>
+    </div>
   )
 }
 

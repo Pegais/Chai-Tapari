@@ -7,10 +7,10 @@
  */
 
 import React from "react"
-import { motion, AnimatePresence } from "framer-motion"
+import { motion } from "framer-motion"
 import { mockUsers, mockPresence, isUserOnline } from "../../data/mockData"
 import { Avatar, AvatarImage, AvatarFallback } from "../ui/avatar"
-import { Badge } from "../ui/badge"
+import AnimatedList from "../ui/AnimatedList"
 import { ScrollArea } from "../ui/scroll-area"
 
 function OnlineUsers() {
@@ -42,56 +42,44 @@ function OnlineUsers() {
 
       {/* Users List */}
       <ScrollArea className="flex-1">
-        <div className="p-2 space-y-1">
+        <div className="p-2">
           {/* Online Users */}
-          <AnimatePresence>
-            {onlineUsers.length > 0 && (
-              <>
-                <motion.div
-                  className="px-2 py-1 text-xs font-semibold text-primary uppercase"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                >
-                  Online
-                </motion.div>
-                {onlineUsers.map((user, index) => (
-                  <motion.div
-                    key={user._id}
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: index * 0.05 }}
-                  >
-                    <UserItem user={user} isOnline={true} />
-                  </motion.div>
-                ))}
-              </>
-            )}
-          </AnimatePresence>
+          {onlineUsers.length > 0 && (
+            <>
+              <motion.div
+                className="px-2 py-2 text-xs font-semibold text-primary uppercase"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+              >
+                Online ({onlineUsers.length})
+              </motion.div>
+              <AnimatedList
+                items={onlineUsers}
+                renderItem={(user) => <UserItem user={user} isOnline={true} />}
+                itemClassName="mb-1"
+                staggerDelay={0.05}
+              />
+            </>
+          )}
 
           {/* Offline Users */}
-          <AnimatePresence>
-            {offlineUsers.length > 0 && (
-              <>
-                <motion.div
-                  className="px-2 py-1 text-xs font-semibold text-muted-foreground uppercase mt-4"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                >
-                  Offline
-                </motion.div>
-                {offlineUsers.map((user, index) => (
-                  <motion.div
-                    key={user._id}
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: index * 0.05 }}
-                  >
-                    <UserItem user={user} isOnline={false} />
-                  </motion.div>
-                ))}
-              </>
-            )}
-          </AnimatePresence>
+          {offlineUsers.length > 0 && (
+            <>
+              <motion.div
+                className="px-2 py-2 text-xs font-semibold text-muted-foreground uppercase mt-4"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+              >
+                Offline ({offlineUsers.length})
+              </motion.div>
+              <AnimatedList
+                items={offlineUsers}
+                renderItem={(user) => <UserItem user={user} isOnline={false} />}
+                itemClassName="mb-1"
+                staggerDelay={0.05}
+              />
+            </>
+          )}
         </div>
       </ScrollArea>
     </div>

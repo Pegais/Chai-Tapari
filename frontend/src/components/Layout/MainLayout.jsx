@@ -11,6 +11,7 @@ import { Outlet } from "react-router-dom"
 import { motion } from "framer-motion"
 import ChannelList from "../Channels/ChannelList"
 import OnlineUsers from "../Presence/OnlineUsers"
+import ProfileSection from "../Profile/ProfileSection"
 
 // Sidebar animation variants
 // Why: Smooth sidebar entrance animations
@@ -45,7 +46,17 @@ const rightSidebarVariants = {
 function MainLayout() {
   return (
     <div className="h-screen flex bg-background relative z-10">
-      {/* Left Sidebar - Channels List */}
+      {/* Left Sidebar - Profile Section */}
+      <motion.aside
+        className="w-72 border-r border-primary/20 flex-shrink-0"
+        variants={sidebarVariants}
+        initial="hidden"
+        animate="visible"
+      >
+        <ProfileSection />
+      </motion.aside>
+
+      {/* Channels Sidebar */}
       <motion.aside
         className="w-64 border-r border-primary/20 bg-card/95 backdrop-blur-sm flex-shrink-0"
         variants={sidebarVariants}
