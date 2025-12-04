@@ -192,10 +192,19 @@ function Signup() {
       }
     } catch (error) {
       console.error("[Signup] Error:", error)
-      setErrors({ 
-        submit: error.message || "An error occurred. Please try again.",
-        ...(error.errors && { fields: error.errors })
-      })
+      
+      // Handle rate limit errors specifically
+      if (error.status === 429 || error.error === 'RATE_LIMIT_EXCEEDED') {
+        const retryAfter = error.retryAfter || 15
+        setErrors({
+          submit: `Too many signup attempts. Please wait ${retryAfter} minute${retryAfter > 1 ? 's' : ''} before trying again.`,
+        })
+      } else {
+        setErrors({ 
+          submit: error.message || "An error occurred. Please try again.",
+          ...(error.errors && { fields: error.errors })
+        })
+      }
     } finally {
       setLoading(false)
     }

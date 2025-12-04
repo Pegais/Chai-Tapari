@@ -139,6 +139,20 @@ apiClient.interceptors.response.use(
         console.warn('[API] Resource not found')
       }
 
+      // Handle 429 Too Many Requests (Rate Limit)
+      if (status === 429) {
+        console.warn('[API] Rate limit exceeded')
+        const retryAfter = error.response.headers['retry-after'] || error.response.headers['x-ratelimit-reset']
+        return Promise.reject({
+          message: data?.message || 'Too many requests. Please try again later.',
+          status: 429,
+          error: 'RATE_LIMIT_EXCEEDED',
+          retryAfter: retryAfter ? parseInt(retryAfter) : null,
+          data: data?.data || data,
+          errors: data?.errors || [],
+        })
+      }
+
       // Handle 500 Server Error
       if (status >= 500) {
         console.error('[API] Server error occurred')

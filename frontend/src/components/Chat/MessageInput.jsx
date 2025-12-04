@@ -485,7 +485,14 @@ function MessageInput({ channelId, onMessageSent }) {
       }
     } catch (error) {
       console.error("[MessageInput] Send error:", error)
-      setError(error.message || "Failed to send message. Please try again.")
+      
+      // Handle rate limit errors specifically
+      if (error.status === 429 || error.error === 'RATE_LIMIT_EXCEEDED') {
+        const retryAfter = error.retryAfter || 1
+        setError(`Too many messages. Please wait ${retryAfter} minute${retryAfter > 1 ? 's' : ''} before sending more.`)
+      } else {
+        setError(error.message || "Failed to send message. Please try again.")
+      }
     }
   }
 

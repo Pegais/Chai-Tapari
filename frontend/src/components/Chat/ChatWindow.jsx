@@ -12,7 +12,7 @@ import { motion } from "framer-motion"
 import MessageList from "./MessageList"
 import MessageInput from "./MessageInput"
 import TypingIndicator from "./TypingIndicator"
-import { useChannel, useJoinChannel } from "../../hooks/useChannels"
+import { useChannel } from "../../hooks/useChannels"
 import { useMessages, messageKeys } from "../../hooks/useMessages"
 import { useAuth } from "../../context/AuthContext"
 import { getSocket } from "../../services/socket"
@@ -25,7 +25,6 @@ function ChatWindow() {
   const { data: channel, isLoading: channelLoading, error: channelError } = useChannel(channelId)
   const { data: messagesData, isLoading: messagesLoading } = useMessages(channelId)
   const [typingUsers, setTypingUsers] = useState([])
-  const joinChannel = useJoinChannel()
 
   // Extract messages from infinite query data
   // Why: Flatten paginated messages into single array
@@ -34,29 +33,15 @@ function ChatWindow() {
   const messages = messagesData?.pages?.flatMap(page => page.messages || []) || []
 
   /**
-   * Auto-join public channels
-   * Why: Allow users to automatically join public channels
-   * How: Checks if user is member, joins if not
-   * Impact: Seamless access to public channels
+   * Note: Public channels don't require explicit joining
+   * Why: Prevent adding user IDs to members array for every viewer
+   * How: Users can view and interact with public channels without being in members list
+   * Impact: Members array only tracks active participants, not all viewers
+   * 
+   * Users will be added to members automatically when they:
+   * - Send their first message in the channel
+   * - Explicitly join via join button (if implemented)
    */
-  useEffect(() => {
-    if (channel && !channel.isPrivate && user) {
-      const isMember = channel.members?.some(member => 
-        (typeof member === 'object' ? member._id : member) === user._id
-      )
-      
-      if (!isMember) {
-        joinChannel.mutate(channel._id, {
-          onSuccess: () => {
-            console.log('[ChatWindow] Auto-joined public channel')
-          },
-          onError: (error) => {
-            console.error('[ChatWindow] Failed to join channel:', error)
-          }
-        })
-      }
-    }
-  }, [channel, user, joinChannel])
 
   /**
    * Set up WebSocket listeners

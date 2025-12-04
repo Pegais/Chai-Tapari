@@ -40,11 +40,30 @@ const createMessage = async (messageData, senderId) => {
     throw error
   }
 
-  // Check if user is member
-  if (!channel.isMember(senderId)) {
-    const error = new Error('User is not a member of this channel')
-    error.statusCode = 403
-    throw error
+  // Check channel access
+  // For private channels: user must be a member
+  // For public channels: allow anyone to send messages, auto-add to members if not already a member
+  if (channel.isPrivate) {
+    if (!channel.isMember(senderId)) {
+      const error = new Error('User is not a member of this private channel')
+      error.statusCode = 403
+      throw error
+    }
+  } else {
+    // Public channel: auto-add user to members if not already a member
+    // Why: Track active participants without requiring explicit join
+    // How: Uses atomic MongoDB operation to prevent race conditions and duplicates
+    // Impact: Members array only tracks users who have participated, not all viewers
+    
+    // Use atomic $addToSet to prevent duplicate member IDs (thread-safe)
+    // Why: Prevents race conditions when multiple messages are sent concurrently
+    // How: MongoDB's $addToSet only adds if value doesn't exist
+    // Impact: Each user appears only once in members array, even with concurrent requests
+    await Channel.findByIdAndUpdate(
+      channelId,
+      { $addToSet: { members: senderId } }, // $addToSet prevents duplicates atomically
+      { new: true }
+    )
   }
 
   // Create message

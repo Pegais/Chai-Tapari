@@ -116,7 +116,14 @@ function Login() {
       }
     } catch (err) {
       console.error("[Login] Error:", err)
-      setError(err.message || "An error occurred. Please try again.")
+      
+      // Handle rate limit errors specifically
+      if (err.status === 429 || err.error === 'RATE_LIMIT_EXCEEDED') {
+        const retryAfter = err.retryAfter || 15
+        setError(`Too many login attempts. Please wait ${retryAfter} minute${retryAfter > 1 ? 's' : ''} before trying again.`)
+      } else {
+        setError(err.message || "An error occurred. Please try again.")
+      }
     } finally {
       setLoading(false)
     }

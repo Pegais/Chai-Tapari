@@ -261,11 +261,18 @@ const joinChannel = async (channelId, userId) => {
     throw error
   }
 
-  // Auto-join public channel
-  await channel.addMember(userId)
-  await channel.populate('members', 'username email avatar')
-
-  return channel
+  // Auto-join public channel using atomic operation to prevent duplicates
+  // Why: Prevent race conditions when multiple users join simultaneously
+  // How: Uses MongoDB's $addToSet which only adds if value doesn't exist
+  // Impact: Each user appears only once even with concurrent requests
+  const updatedChannel = await Channel.findByIdAndUpdate(
+    channelId,
+    { $addToSet: { members: userId } }, // $addToSet prevents duplicates atomically
+    { new: true }
+  )
+  
+  await updatedChannel.populate('members', 'username email avatar')
+  return updatedChannel
 }
 
 /**

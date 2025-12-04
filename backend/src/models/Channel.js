@@ -91,19 +91,25 @@ channelSchema.virtual('memberCount').get(function() {
 /**
  * Method to add member to channel
  * Why: Manage channel membership programmatically
- * How: Adds user ID to members array if not already present
- * Impact: Enables adding users to channels
+ * How: Adds user ID to members array if not already present using atomic operation
+ * Impact: Enables adding users to channels without race conditions
  */
-channelSchema.methods.addMember = function(userId) {
-  // Check if user is already a member using proper ObjectId comparison
-  // Why: Prevent duplicate members in channel
-  // How: Uses isMember method which properly compares ObjectIds
-  // Impact: Ensures each user appears only once in members array
-  if (!this.isMember(userId)) {
-    this.members.push(userId)
-    return this.save()
+channelSchema.methods.addMember = async function(userId) {
+  // Use atomic $addToSet to prevent duplicates in concurrent scenarios
+  // Why: Prevent duplicate members when multiple requests happen simultaneously
+  // How: MongoDB's $addToSet only adds if value doesn't exist (atomic operation)
+  // Impact: Ensures each user appears only once even with race conditions
+  const updatedChannel = await this.constructor.findByIdAndUpdate(
+    this._id,
+    { $addToSet: { members: userId } }, // $addToSet prevents duplicates atomically
+    { new: true }
+  )
+  
+  // Update this instance to reflect the change
+  if (updatedChannel) {
+    this.members = updatedChannel.members
   }
-  return Promise.resolve(this)
+  return updatedChannel || this
 }
 
 /**
