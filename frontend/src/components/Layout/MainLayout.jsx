@@ -248,7 +248,11 @@ function MainLayout() {
         <Button
           variant="ghost"
           size="icon"
-          className="h-12 w-12 rounded-lg"
+          onClick={() => setShowLeftDrawer(true)}
+          className={cn(
+            "h-12 w-12 rounded-lg",
+            showLeftDrawer && "bg-primary/20"
+          )}
         >
           <Hash className="h-5 w-5" />
         </Button>

@@ -9,6 +9,7 @@
 import React, { useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { motion, AnimatePresence } from "framer-motion"
+import { GoogleLogin } from "@react-oauth/google"
 import { Button } from "../ui/button"
 import { Input } from "../ui/input"
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "../ui/card"
@@ -45,11 +46,54 @@ const itemVariants = {
 
 function Login() {
   const navigate = useNavigate()
-  const { login } = useAuth()
+  const { login, loginWithGoogle } = useAuth()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
+  const [googleLoading, setGoogleLoading] = useState(false)
+
+  /**
+   * Handle Google login success
+   * Why: Authenticate user with Google OAuth
+   * How: Receives credential (ID token) from Google, sends to backend
+   * Impact: Users can sign in with Google account
+   */
+  const handleGoogleSuccess = async (credentialResponse) => {
+    setGoogleLoading(true)
+    setError("")
+    
+    try {
+      if (!credentialResponse.credential) {
+        throw new Error('No credential received from Google')
+      }
+
+      // Send ID token to backend for verification
+      const result = await loginWithGoogle(credentialResponse.credential)
+      
+      if (result.success) {
+        navigate("/chat")
+      } else {
+        setError(result.message || "Google authentication failed. Please try again.")
+      }
+    } catch (err) {
+      console.error("[Login] Google login error:", err)
+      setError(err.message || "Google authentication failed. Please try again.")
+    } finally {
+      setGoogleLoading(false)
+    }
+  }
+
+  /**
+   * Handle Google login error
+   * Why: Show error if Google authentication fails
+   * How: Sets error message
+   * Impact: User knows what went wrong
+   */
+  const handleGoogleError = () => {
+    setError("Google authentication failed. Please try again.")
+    setGoogleLoading(false)
+  }
 
   /**
    * Handle form submission
@@ -151,11 +195,46 @@ function Login() {
                 <Button 
                   type="submit" 
                   className="w-full h-12 sm:h-14 text-base sm:text-lg font-bold bg-gradient-to-r from-primary to-accent hover:from-primary/90 hover:to-accent/90" 
-                  disabled={loading}
+                  disabled={loading || googleLoading}
                 >
                   {loading ? "Signing in..." : "Sign In"}
                 </Button>
               </motion.div>
+
+              {/* Google Sign In Button */}
+              {process.env.REACT_APP_GOOGLE_CLIENT_ID && (
+                <>
+                  <motion.div className="relative flex items-center gap-4 my-4" variants={itemVariants}>
+                    <div className="flex-1 h-px bg-primary/20"></div>
+                    <span className="text-sm text-muted-foreground">OR</span>
+                    <div className="flex-1 h-px bg-primary/20"></div>
+                  </motion.div>
+                  <motion.div variants={itemVariants} className="w-full">
+                    <div className="flex justify-center">
+                      <GoogleLogin
+                        onSuccess={handleGoogleSuccess}
+                        onError={handleGoogleError}
+                        disabled={loading || googleLoading}
+                        useOneTap={false}
+                        theme="outline"
+                        size="large"
+                        text="signin_with"
+                        shape="rectangular"
+                        logo_alignment="left"
+                        width="100%"
+                        containerProps={{
+                          style: {
+                            width: '100%',
+                            display: 'flex',
+                            justifyContent: 'center',
+                          }
+                        }}
+                      />
+                    </div>
+                  </motion.div>
+                </>
+              )}
+
               <motion.div className="text-center text-sm sm:text-base text-muted-foreground pt-2 md:pt-4" variants={itemVariants}>
                 Don't have an account?{" "}
                 <button

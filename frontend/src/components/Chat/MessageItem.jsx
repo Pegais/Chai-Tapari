@@ -6,13 +6,13 @@
  * Impact: Clear message presentation with rich content support
  */
 
-import React, { useState } from "react"
+import React, { useState, useRef, useEffect } from "react"
 import { motion } from "framer-motion"
 import { Avatar, AvatarImage, AvatarFallback } from "../ui/avatar"
 import { Button } from "../ui/button"
 import { Input } from "../ui/input"
 import { format } from "date-fns"
-import { Edit2, Trash2 } from "lucide-react"
+import { Edit2, Trash2, Check, CheckCheck } from "lucide-react"
 import LinkPreview from "./LinkPreview"
 import VideoEmbed from "./VideoEmbed"
 import { useAuth } from "../../context/AuthContext"
@@ -189,35 +189,13 @@ function MessageItem({ message, showAvatar, showTimestamp }) {
                 {message.attachments && message.attachments.length > 0 && (
                   <div className="mt-2 space-y-2">
                     {message.attachments.map((file, index) => (
-                      <div key={index} className="rounded overflow-hidden">
-                        {file.fileType.startsWith("image/") ? (
-                          <img
-                            src={file.thumbnailUrl || file.fileUrl}
-                            alt={file.fileName}
-                            className="max-w-full h-auto rounded"
-                            loading="lazy"
-                          />
-                        ) : (
-                          <a
-                            href={file.fileUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-2 p-2 bg-background/50 rounded hover:bg-background/80"
-                          >
-                            <span className="text-sm">{file.fileName}</span>
-                            <span className="text-xs text-muted-foreground">
-                              {(file.fileSize / 1024).toFixed(1)} KB
-                            </span>
-                          </a>
-                        )}
-                      </div>
+                      <LazyImage
+                        key={index}
+                        file={file}
+                        index={index}
+                      />
                     ))}
                   </div>
-                )}
-
-                {/* Edited Indicator */}
-                {message.editedAt && (
-                  <span className="text-xs opacity-70 mt-1 block">(edited)</span>
                 )}
               </>
             )}
@@ -247,8 +225,133 @@ function MessageItem({ message, showAvatar, showTimestamp }) {
             </div>
           )}
         </div>
+        
+        {/* Message Metadata - Separate from message bubble */}
+        <div className={`flex items-center gap-1 mt-0.5 ${isOwnMessage ? "justify-end" : "justify-start"} px-1`}>
+          {showTimestamp && !showAvatar && (
+            <span className="text-[10px] text-muted-foreground">
+              {format(new Date(message.timestamp), "h:mm a")}
+            </span>
+          )}
+          {message.editedAt && (
+            <span className="text-[10px] text-muted-foreground opacity-70">(edited)</span>
+          )}
+          {isOwnMessage && (
+            <MessageStatus status={message.status || 'sent'} />
+          )}
+        </div>
       </div>
     </motion.div>
+  )
+}
+
+/**
+ * Lazy Image Component
+ * Why: Load images only when in viewport and fully loaded
+ * How: Uses Intersection Observer and image load events
+ * Impact: Better performance and user experience
+ */
+function LazyImage({ file, index }) {
+  const [isLoaded, setIsLoaded] = useState(false)
+  const [isInView, setIsInView] = useState(false)
+  const [hasError, setHasError] = useState(false)
+  const imgRef = useRef(null)
+  const containerRef = useRef(null)
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            setIsInView(true)
+            observer.disconnect()
+          }
+        })
+      },
+      { rootMargin: '50px' } // Start loading 50px before entering viewport
+    )
+
+    if (containerRef.current) {
+      observer.observe(containerRef.current)
+    }
+
+    return () => {
+      observer.disconnect()
+    }
+  }, [])
+
+  if (file.fileType.startsWith("image/")) {
+    return (
+      <div ref={containerRef} className="rounded overflow-hidden relative">
+        {!isLoaded && (
+          <div className="w-full h-48 bg-muted/50 animate-pulse flex items-center justify-center">
+            <span className="text-xs text-muted-foreground">Loading image...</span>
+          </div>
+        )}
+        {isInView && (
+          <img
+            ref={imgRef}
+            src={file.thumbnailUrl || file.fileUrl}
+            alt={file.fileName}
+            className={`max-w-full h-auto rounded transition-opacity duration-300 ${
+              isLoaded ? 'opacity-100' : 'opacity-0'
+            }`}
+            onLoad={() => setIsLoaded(true)}
+            onError={() => {
+              setHasError(true)
+              setIsLoaded(true)
+            }}
+            loading="lazy"
+          />
+        )}
+        {hasError && (
+          <div className="w-full h-48 bg-muted/50 flex items-center justify-center">
+            <span className="text-xs text-muted-foreground">Failed to load image</span>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <a
+      href={file.fileUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="flex items-center gap-2 p-2 bg-background/50 rounded hover:bg-background/80"
+    >
+      <span className="text-sm">{file.fileName}</span>
+      <span className="text-xs text-muted-foreground">
+        {(file.fileSize / 1024).toFixed(1)} KB
+      </span>
+    </a>
+  )
+}
+
+/**
+ * Message Status Component
+ * Why: Show message delivery status (sent, delivered, read)
+ * How: Displays single or double checkmark with color coding
+ * Impact: Users know if their messages were seen
+ */
+function MessageStatus({ status }) {
+  const getStatusIcon = () => {
+    switch (status) {
+      case 'read':
+        return <CheckCheck className="h-3.5 w-3.5 text-orange-500" />
+      case 'delivered':
+        return <CheckCheck className="h-3.5 w-3.5 text-muted-foreground" />
+      case 'sent':
+        return <Check className="h-3.5 w-3.5 text-muted-foreground" />
+      default:
+        return <Check className="h-3.5 w-3.5 text-muted-foreground" />
+    }
+  }
+
+  return (
+    <span className="flex items-center">
+      {getStatusIcon()}
+    </span>
   )
 }
 

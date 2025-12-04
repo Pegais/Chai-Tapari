@@ -66,6 +66,17 @@ export const logout = async () => {
 }
 
 /**
+ * Google OAuth authentication
+ * Why: Authenticate user with Google account
+ * How: Sends Google ID token to backend
+ * Impact: Users can sign in with Google
+ */
+export const googleAuth = async (idToken) => {
+  const response = await apiClient.post('/auth/google', { idToken })
+  return response.data
+}
+
+/**
  * Channel API
  * Why: Handle channel operations
  * How: Provides CRUD operations for channels
@@ -235,7 +246,7 @@ export const getUserById = async (userId) => {
  * How: Sends file as FormData to upload endpoint
  * Impact: File available for sharing
  */
-export const uploadFile = async (file) => {
+export const uploadFile = async (file, options = {}) => {
   const formData = new FormData()
   formData.append('file', file)
 
@@ -243,6 +254,7 @@ export const uploadFile = async (file) => {
     headers: {
       'Content-Type': 'multipart/form-data',
     },
+    signal: options.signal, // Support AbortController
   })
   return response.data
 }
@@ -253,7 +265,7 @@ export const uploadFile = async (file) => {
  * How: Sends files as FormData to upload endpoint
  * Impact: Multiple files available for sharing
  */
-export const uploadMultipleFiles = async (files) => {
+export const uploadMultipleFiles = async (files, options = {}) => {
   const formData = new FormData()
   files.forEach(file => {
     formData.append('files', file)
@@ -263,6 +275,7 @@ export const uploadMultipleFiles = async (files) => {
     headers: {
       'Content-Type': 'multipart/form-data',
     },
+    signal: options.signal, // Support AbortController
   })
   return response.data
 }

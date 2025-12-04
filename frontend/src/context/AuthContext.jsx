@@ -14,7 +14,7 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { login as loginAPI, getCurrentUser, logout as logoutAPI } from '../services/api'
+import { login as loginAPI, getCurrentUser, logout as logoutAPI, googleAuth as googleAuthAPI } from '../services/api'
 import { disconnectSocket } from '../services/socket'
 
 /**
@@ -120,6 +120,38 @@ export function AuthProvider({ children }) {
   }
 
   /**
+   * Google login function
+   * Why: Authenticate user with Google OAuth
+   * How: Calls Google auth API with ID token
+   * Impact: User can sign in with Google account
+   */
+  const loginWithGoogle = async (idToken) => {
+    try {
+      const response = await googleAuthAPI(idToken)
+
+      if (response.success) {
+        const { user, token } = response.data
+
+        // Store token and user
+        localStorage.setItem('token', token)
+        localStorage.setItem('user', JSON.stringify(user))
+        setToken(token)
+        setUser(user)
+
+        return { success: true }
+      } else {
+        return { success: false, message: response.message || 'Google authentication failed' }
+      }
+    } catch (error) {
+      console.error('[Auth] Google login error:', error)
+      return {
+        success: false,
+        message: error.message || 'Google authentication failed. Please try again.',
+      }
+    }
+  }
+
+  /**
    * Logout function
    * Why: End user session
    * How: Calls logout API, clears auth data, disconnects socket
@@ -158,6 +190,7 @@ export function AuthProvider({ children }) {
     token,
     loading,
     login,
+    loginWithGoogle,
     logout,
     updateUser,
     isAuthenticated: !!user && !!token,

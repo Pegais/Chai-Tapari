@@ -14,6 +14,8 @@
 
 const User = require('../models/User')
 const jwt = require('jsonwebtoken')
+const { OAuth2Client } = require('google-auth-library')
+const { detectGenderFromName, getRandomAvatarByGender } = require('../utils/genderDetector')
 
 /**
  * Register new user
@@ -210,6 +212,111 @@ const logoutUser = async (userId) => {
   }
 }
 
+/**
+ * Authenticate user with Google OAuth
+ * Why: Allow users to sign in with Google account
+ * How: Verifies Google ID token, creates or updates user
+ * Impact: Users can sign in with Google without password
+ */
+const authenticateGoogle = async (idToken) => {
+  const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID)
+  
+  try {
+    // Verify the token
+    const ticket = await client.verifyIdToken({
+      idToken,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    })
+    
+    const payload = ticket.getPayload()
+    const { sub: googleId, email, name, picture } = payload
+    
+    if (!email) {
+      const error = new Error('Email not provided by Google')
+      error.statusCode = 400
+      throw error
+    }
+    
+    // Use name as username (sanitize it properly)
+    let baseUsername = name
+      ? name.toLowerCase().trim().replace(/[^a-z0-9_]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '')
+      : email.split('@')[0].toLowerCase().replace(/[^a-z0-9_]/g, '_')
+    
+    // Ensure minimum length of 3 characters
+    if (baseUsername.length < 3) {
+      baseUsername = baseUsername + '_user'
+    }
+    
+    // Truncate to max 30 characters
+    baseUsername = baseUsername.substring(0, 30)
+    
+    // Check if user exists by email or googleId
+    let user = await User.findOne({
+      $or: [{ email }, { googleId }],
+    })
+    
+    if (user) {
+      // Update existing user with Google ID if not set
+      if (!user.googleId) {
+        user.googleId = googleId
+        await user.save()
+      }
+      
+      // Update last seen
+      await user.updateLastSeen()
+    } else {
+      // Create new user
+      // Detect gender from name
+      const gender = detectGenderFromName(name || baseUsername)
+      
+      // Assign random avatar based on gender
+      const avatar = getRandomAvatarByGender(gender)
+      
+      // Generate unique username if conflict
+      let finalUsername = baseUsername
+      let counter = 1
+      while (await User.findOne({ username: finalUsername })) {
+        const suffix = `_${counter}`
+        const maxLength = 30 - suffix.length
+        finalUsername = baseUsername.substring(0, maxLength) + suffix
+        counter++
+        
+        // Prevent infinite loop
+        if (counter > 1000) {
+          finalUsername = baseUsername.substring(0, 20) + '_' + Date.now().toString().slice(-6)
+          break
+        }
+      }
+      
+      user = new User({
+        username: finalUsername,
+        email,
+        googleId,
+        avatar,
+        password: undefined, // No password for OAuth users
+      })
+      
+      await user.save()
+    }
+    
+    // Return user without password
+    return {
+      _id: user._id,
+      username: user.username,
+      email: user.email,
+      avatar: user.avatar,
+      lastSeen: user.lastSeen,
+    }
+  } catch (error) {
+    if (error.statusCode) {
+      throw error
+    }
+    const authError = new Error('Invalid Google token')
+    authError.statusCode = 401
+    throw authError
+  }
+}
+
 module.exports = {
   registerUser,
   loginUser,
@@ -217,5 +324,6 @@ module.exports = {
   verifyToken,
   getUserById,
   logoutUser,
+  authenticateGoogle,
 }
 

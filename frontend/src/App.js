@@ -10,6 +10,7 @@ import React from "react"
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { AnimatePresence } from "framer-motion"
+import { GoogleOAuthProvider } from "@react-oauth/google"
 import { AuthProvider, useAuth } from "./context/AuthContext"
 import { SocketProvider } from "./context/SocketContext"
 import Home from "./components/Home/Home"
@@ -19,6 +20,18 @@ import MainLayout from "./components/Layout/MainLayout"
 import ChatWindow from "./components/Chat/ChatWindow"
 import DirectMessageWindow from "./components/DirectMessages/DirectMessageWindow"
 import { useChannels } from "./hooks/useChannels"
+
+// Get Google Client ID from environment
+const GOOGLE_CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID || ''
+
+// Warn if Google Client ID is not set
+if (!GOOGLE_CLIENT_ID && process.env.NODE_ENV === 'development') {
+  console.warn('[Google OAuth] REACT_APP_GOOGLE_CLIENT_ID is not set. Google sign-in will not work.')
+  console.warn('[Google OAuth] To enable Google sign-in:')
+  console.warn('[Google OAuth]   1. Go to https://console.cloud.google.com/')
+  console.warn('[Google OAuth]   2. Create OAuth 2.0 credentials')
+  console.warn('[Google OAuth]   3. Add REACT_APP_GOOGLE_CLIENT_ID to your .env file')
+}
 
 // Create React Query client for data fetching and caching
 // Why: Centralized data management with caching and refetching
@@ -89,41 +102,43 @@ function NavigateToChannel() {
 
 function App() {
   return (
-          <BrowserRouter>
-    <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <SocketProvider>
-            <AnimatePresence mode="wait">
-              <Routes>
-                {/* Home Page - Public Route */}
-                <Route path="/" element={<Home />} />
-                
-                {/* Public Routes */}
-                <Route path="/login" element={<Login />} />
-                <Route path="/signup" element={<Signup />} />
-                
-                {/* Protected Routes */}
-                <Route
-                  path="/chat"
-                  element={
-                    <ProtectedRoute>
-                      <MainLayout />
-                    </ProtectedRoute>
-                  }
-                >
-                  <Route index element={<NavigateToFirstChannel />} />
-                  <Route path="channel/:channelId" element={<ChatWindow />} />
-                  <Route path="dm/:conversationId" element={<DirectMessageWindow />} />
-                  <Route path="dm/new/:userId" element={<DirectMessageWindow />} />
-                  {/* Fallback route for old format - redirect to new format */}
-                  <Route path=":id" element={<NavigateToChannel />} />
-                </Route>
-              </Routes>
-            </AnimatePresence>
-        </SocketProvider>
-      </AuthProvider>
-    </QueryClientProvider>
-          </BrowserRouter>
+    <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
+      <BrowserRouter>
+        <QueryClientProvider client={queryClient}>
+          <AuthProvider>
+            <SocketProvider>
+              <AnimatePresence mode="wait">
+                <Routes>
+                  {/* Home Page - Public Route */}
+                  <Route path="/" element={<Home />} />
+                  
+                  {/* Public Routes */}
+                  <Route path="/login" element={<Login />} />
+                  <Route path="/signup" element={<Signup />} />
+                  
+                  {/* Protected Routes */}
+                  <Route
+                    path="/chat"
+                    element={
+                      <ProtectedRoute>
+                        <MainLayout />
+                      </ProtectedRoute>
+                    }
+                  >
+                    <Route index element={<NavigateToFirstChannel />} />
+                    <Route path="channel/:channelId" element={<ChatWindow />} />
+                    <Route path="dm/:conversationId" element={<DirectMessageWindow />} />
+                    <Route path="dm/new/:userId" element={<DirectMessageWindow />} />
+                    {/* Fallback route for old format - redirect to new format */}
+                    <Route path=":id" element={<NavigateToChannel />} />
+                  </Route>
+                </Routes>
+              </AnimatePresence>
+            </SocketProvider>
+          </AuthProvider>
+        </QueryClientProvider>
+      </BrowserRouter>
+    </GoogleOAuthProvider>
   )
 }
 

@@ -36,7 +36,7 @@ module.exports = {
           {
             'rate-limit': {
               action: {
-                max: 100,
+                max: 500,
                 windowMs: 900000,
               },
             },
@@ -77,7 +77,7 @@ module.exports = {
           {
             'rate-limit': {
               action: {
-                max: 100,
+                max: 500,
                 windowMs: 900000,
               },
             },

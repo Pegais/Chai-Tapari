@@ -32,8 +32,25 @@ export function useUploadFile() {
  */
 export function useUploadMultipleFiles() {
   return useMutation({
-    mutationFn: async (files) => {
-      const response = await uploadMultipleFiles(files)
+    mutationFn: async (input) => {
+      // Support both old format (just files array) and new format (object with files and signal)
+      let filesArray
+      let options = {}
+      
+      if (Array.isArray(input)) {
+        // Old format: just array of files
+        filesArray = input
+      } else if (input && typeof input === 'object') {
+        // New format: object with files and signal
+        filesArray = input.files || input
+        if (input.signal) {
+          options.signal = input.signal
+        }
+      } else {
+        throw new Error('Invalid input format for uploadMultipleFiles')
+      }
+      
+      const response = await uploadMultipleFiles(filesArray, options)
       return response.data.files
     },
   })

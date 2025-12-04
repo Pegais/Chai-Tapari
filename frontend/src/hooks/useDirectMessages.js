@@ -117,3 +117,78 @@ export function useSendDirectMessage() {
   })
 }
 
+/**
+ * Edit direct message mutation hook
+ * Why: Update direct message with cache updates
+ * How: Uses React Query useMutation hook
+ * Impact: Message updated in cache immediately
+ */
+export function useEditDirectMessage() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({ messageId, content }) => {
+      const { editMessage } = require('../services/api')
+      const response = await editMessage(messageId, content)
+      return response.data.message
+    },
+    onSuccess: (data) => {
+      // Update message in all conversation caches
+      queryClient.setQueriesData(
+        { queryKey: directMessageKeys.messages() },
+        (oldData) => {
+          if (!oldData) return oldData
+          
+          // Update message in infinite query pages
+          return {
+            ...oldData,
+            pages: oldData.pages.map(page => ({
+              ...page,
+              messages: page.messages.map(msg => 
+                msg._id === data._id ? data : msg
+              ),
+            })),
+          }
+        }
+      )
+    },
+  })
+}
+
+/**
+ * Delete direct message mutation hook
+ * Why: Delete direct message with cache updates
+ * How: Uses React Query useMutation hook
+ * Impact: Message removed from cache immediately
+ */
+export function useDeleteDirectMessage() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (messageId) => {
+      const { deleteMessage } = require('../services/api')
+      const response = await deleteMessage(messageId)
+      return response.data.message
+    },
+    onSuccess: (data) => {
+      // Remove message from all conversation caches
+      queryClient.setQueriesData(
+        { queryKey: directMessageKeys.messages() },
+        (oldData) => {
+          if (!oldData) return oldData
+          
+          return {
+            ...oldData,
+            pages: oldData.pages.map(page => ({
+              ...page,
+              messages: page.messages.map(msg => 
+                msg._id === data._id ? { ...msg, isDeleted: true } : msg
+              ),
+            })),
+          }
+        }
+      )
+    },
+  })
+}
+

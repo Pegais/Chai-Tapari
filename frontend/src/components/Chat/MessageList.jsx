@@ -98,13 +98,91 @@ function MessageList({ messages = [], channelId, conversationId }) {
     }
 
     const handleMessageEdited = (data) => {
-      // Message will be updated via WebSocket
-      console.log('[MessageList] Message edited:', data)
+      const message = data.message || data
+      console.log('[MessageList] Message edited:', message)
+      
+      if (channelId) {
+        const messageChannelId = typeof message.channel === 'object' 
+          ? message.channel._id || message.channel 
+          : message.channel
+        
+        if (messageChannelId === channelId) {
+          // Update cache immediately
+          queryClient.setQueryData(messageKeys.list(channelId), (oldData) => {
+            if (!oldData) return oldData
+            
+            return {
+              ...oldData,
+              pages: oldData.pages.map(page => ({
+                ...page,
+                messages: page.messages.map(msg => 
+                  msg._id === message._id ? message : msg
+                ),
+              })),
+            }
+          })
+        }
+      } else if (conversationId) {
+        const messageConversationId = typeof message.conversation === 'object' 
+          ? message.conversation._id || message.conversation 
+          : message.conversation
+        
+        if (messageConversationId === conversationId) {
+          // Update direct message cache
+          const { directMessageKeys } = require('../../hooks/useDirectMessages')
+          queryClient.setQueryData(directMessageKeys.conversationMessages(conversationId), (oldData) => {
+            if (!oldData) return oldData
+            
+            return {
+              ...oldData,
+              pages: oldData.pages.map(page => ({
+                ...page,
+                messages: page.messages.map(msg => 
+                  msg._id === message._id ? message : msg
+                ),
+              })),
+            }
+          })
+        }
+      }
     }
 
     const handleMessageDeleted = (data) => {
-      // Message will be removed via WebSocket
-      console.log('[MessageList] Message deleted:', data)
+      const { messageId } = data
+      console.log('[MessageList] Message deleted:', messageId)
+      
+      if (channelId) {
+        // Update cache immediately
+        queryClient.setQueryData(messageKeys.list(channelId), (oldData) => {
+          if (!oldData) return oldData
+          
+          return {
+            ...oldData,
+            pages: oldData.pages.map(page => ({
+              ...page,
+              messages: page.messages.map(msg => 
+                msg._id === messageId ? { ...msg, isDeleted: true } : msg
+              ),
+            })),
+          }
+        })
+      } else if (conversationId) {
+        // Update direct message cache
+        const { directMessageKeys } = require('../../hooks/useDirectMessages')
+        queryClient.setQueryData(directMessageKeys.conversationMessages(conversationId), (oldData) => {
+          if (!oldData) return oldData
+          
+          return {
+            ...oldData,
+            pages: oldData.pages.map(page => ({
+              ...page,
+              messages: page.messages.map(msg => 
+                msg._id === messageId ? { ...msg, isDeleted: true } : msg
+              ),
+            })),
+          }
+        })
+      }
     }
 
     socket.on('new-message', handleNewMessage)
@@ -131,6 +209,39 @@ function MessageList({ messages = [], channelId, conversationId }) {
       messagesEndRef.current.scrollIntoView({ behavior: "smooth" })
     }
   }, [messages])
+
+  /**
+   * Mark messages as read when in viewport
+   * Why: Update message status to 'read' when user views them
+   * How: Uses Intersection Observer to detect when messages are visible
+   * Impact: Accurate read receipts for message senders
+   */
+  useEffect(() => {
+    if (!socket || messages.length === 0) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            const messageId = entry.target.getAttribute('data-message-id')
+            if (messageId) {
+              // Mark as read via socket
+              socket.emit('message-read', { messageId })
+            }
+          }
+        })
+      },
+      { rootMargin: '0px', threshold: 0.5 }
+    )
+
+    // Observe all message elements
+    const messageElements = document.querySelectorAll('[data-message-id]')
+    messageElements.forEach((el) => observer.observe(el))
+
+    return () => {
+      observer.disconnect()
+    }
+  }, [messages, socket])
 
   /**
    * Group messages by date for date separators
@@ -216,12 +327,13 @@ function MessageList({ messages = [], channelId, conversationId }) {
                 transition={{ delay: index * 0.05, type: "spring", stiffness: 200 }}
               >
                 {group.messages.map((message, msgIndex) => (
-                  <MessageItem
-                    key={message._id}
-                    message={message}
-                    showAvatar={msgIndex === 0} // Show avatar only for first message in group
-                    showTimestamp={msgIndex === group.messages.length - 1} // Show timestamp only for last message
-                  />
+                  <div key={message._id} data-message-id={message._id}>
+                    <MessageItem
+                      message={message}
+                      showAvatar={msgIndex === 0} // Show avatar only for first message in group
+                      showTimestamp={msgIndex === group.messages.length - 1} // Show timestamp only for last message
+                    />
+                  </div>
                 ))}
               </motion.div>
             )

@@ -166,15 +166,79 @@ function ChatWindow() {
       }
     }
 
+    // Listen for message edits and deletes
+    const handleMessageEdited = (data) => {
+      const message = data.message || data
+      const messageChannelId = typeof message.channel === 'object' 
+        ? message.channel._id || message.channel 
+        : message.channel
+      
+      if (messageChannelId === channelId) {
+        console.log('[ChatWindow] Message edited:', message)
+        queryClient.setQueryData(messageKeys.list(channelId), (oldData) => {
+          if (!oldData) return oldData
+          return {
+            ...oldData,
+            pages: oldData.pages.map(page => ({
+              ...page,
+              messages: page.messages.map(msg => 
+                msg._id === message._id ? message : msg
+              ),
+            })),
+          }
+        })
+      }
+    }
+
+    const handleMessageDeleted = (data) => {
+      const { messageId } = data
+      console.log('[ChatWindow] Message deleted:', messageId)
+      queryClient.setQueryData(messageKeys.list(channelId), (oldData) => {
+        if (!oldData) return oldData
+        return {
+          ...oldData,
+          pages: oldData.pages.map(page => ({
+            ...page,
+            messages: page.messages.map(msg => 
+              msg._id === messageId ? { ...msg, isDeleted: true } : msg
+            ),
+          })),
+        }
+      })
+    }
+
+    // Listen for message status updates
+    const handleMessageStatusUpdate = (data) => {
+      const { messageId, status } = data
+      queryClient.setQueryData(messageKeys.list(channelId), (oldData) => {
+        if (!oldData) return oldData
+        return {
+          ...oldData,
+          pages: oldData.pages.map(page => ({
+            ...page,
+            messages: page.messages.map(msg => 
+              msg._id === messageId ? { ...msg, status } : msg
+            ),
+          })),
+        }
+      })
+    }
+
     socket.on('new-message', handleNewMessage)
     socket.on('user-typing', handleTyping)
     socket.on('user-stopped-typing', handleTypingStop)
+    socket.on('message-edited', handleMessageEdited)
+    socket.on('message-deleted', handleMessageDeleted)
+    socket.on('message-status-update', handleMessageStatusUpdate)
 
     // Cleanup on unmount
     return () => {
       socket.off('new-message', handleNewMessage)
       socket.off('user-typing', handleTyping)
       socket.off('user-stopped-typing', handleTypingStop)
+      socket.off('message-edited', handleMessageEdited)
+      socket.off('message-deleted', handleMessageDeleted)
+      socket.off('message-status-update', handleMessageStatusUpdate)
       socket.emit('leave-channel', channelId)
     }
   }, [channelId, queryClient])

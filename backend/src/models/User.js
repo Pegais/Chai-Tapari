@@ -40,9 +40,17 @@ const userSchema = new mongoose.Schema({
   },
   password: {
     type: String,
-    required: [true, 'Password is required'],
+    required: function() {
+      // Password required only if not using OAuth
+      return !this.googleId
+    },
     minlength: [6, 'Password must be at least 6 characters'],
     select: false,
+  },
+  googleId: {
+    type: String,
+    unique: true,
+    sparse: true, // Allow multiple null values
   },
   avatar: {
     type: String,
@@ -91,6 +99,7 @@ const userSchema = new mongoose.Schema({
 userSchema.index({ email: 1 })
 userSchema.index({ username: 1 })
 userSchema.index({ isOnline: 1 })
+userSchema.index({ googleId: 1 })
 
 /**
  * Pre-save hook to hash password
@@ -99,7 +108,8 @@ userSchema.index({ isOnline: 1 })
  * Impact: Passwords are never stored in plain text
  */
 userSchema.pre('save', async function(next) {
-  if (!this.isModified('password')) {
+  // Only hash password if it's modified and exists (not for OAuth users)
+  if (!this.isModified('password') || !this.password) {
     return next()
   }
 

@@ -55,5 +55,14 @@ router.get('/me', authenticate, authController.getMe)
  */
 router.post('/logout', authenticate, authController.logout)
 
+/**
+ * Google OAuth authentication
+ * POST /api/auth/google
+ * Why: Allow users to sign in with Google
+ * How: Verifies Google token and creates/logs in user
+ * Impact: Users can authenticate with Google
+ */
+router.post('/google', authLimiter, authController.googleAuth)
+
 module.exports = router
 

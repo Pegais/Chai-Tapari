@@ -7,8 +7,9 @@
  */
 
 import React, { useState, useRef, useCallback } from "react"
+import { motion } from "framer-motion"
 import { Button } from "../ui/button"
-import { Paperclip, Send, X } from "lucide-react"
+import { Paperclip, Send, X, Check } from "lucide-react"
 import { useAuth } from "../../context/AuthContext"
 import { useUploadMultipleFiles } from "../../hooks/useFileUpload"
 import { useCreateMessage, messageKeys } from "../../hooks/useMessages"
@@ -45,26 +46,42 @@ function MessageInput({ channelId, onMessageSent }) {
   const textareaRef = useRef(null)
   const socket = getSocket()
 
+  // Typing timeout ref to clear when user stops typing
+  const typingTimeoutRef = useRef(null)
+  const typingStopTimeoutRef = useRef(null)
+  const uploadAbortControllers = useRef({}) // Track abort controllers for each file
+  const uploadIntervals = useRef({}) // Track progress intervals for each file
+
   /**
    * Handle typing indicator
    * Why: Show other users when someone is typing
    * How: Emits typing event via WebSocket, clears after delay
    * Impact: Better real-time communication feedback
    */
-  const emitTyping = useCallback(
-    debounce(() => {
+  const emitTyping = useCallback(() => {
+    if (!socket || !channelId) return
+    
+    // Clear any existing stop timeout
+    if (typingStopTimeoutRef.current) {
+      clearTimeout(typingStopTimeoutRef.current)
+      typingStopTimeoutRef.current = null
+    }
+    
+    // Emit typing start immediately (no debounce for start)
+    socket.emit('typing-start', channelId)
+    
+    // Set stop timeout - will be cleared if user continues typing
+    typingStopTimeoutRef.current = setTimeout(() => {
       if (socket && channelId) {
-        socket.emit('typing-start', channelId)
-        
-        // Stop typing after 2 seconds
-        setTimeout(() => {
-          if (socket) {
-            socket.emit('typing-stop', channelId)
-          }
-        }, 2000)
+        socket.emit('typing-stop', channelId)
       }
-    }, 500),
-    [channelId, socket]
+    }, 3000) // 3 seconds of inactivity
+  }, [channelId, socket])
+
+  // Debounced version for input changes
+  const debouncedEmitTyping = useCallback(
+    debounce(emitTyping, 300),
+    [emitTyping]
   )
 
   /**
@@ -76,7 +93,16 @@ function MessageInput({ channelId, onMessageSent }) {
   const handleInputChange = (e) => {
     setMessage(e.target.value)
     if (e.target.value.trim()) {
-      emitTyping()
+      debouncedEmitTyping()
+    } else {
+      // Clear typing immediately if input is empty
+      if (typingStopTimeoutRef.current) {
+        clearTimeout(typingStopTimeoutRef.current)
+        typingStopTimeoutRef.current = null
+      }
+      if (socket && channelId) {
+        socket.emit('typing-stop', channelId)
+      }
     }
   }
 
@@ -116,28 +142,122 @@ function MessageInput({ channelId, onMessageSent }) {
   }
 
   /**
+   * Cancel file upload
+   * Why: Allow users to cancel ongoing uploads
+   * How: Aborts the upload request and cleans up
+   * Impact: Users can stop unwanted uploads
+   */
+  const cancelFileUpload = (fileId) => {
+    // Abort the upload request if it exists
+    if (uploadAbortControllers.current[fileId]) {
+      uploadAbortControllers.current[fileId].abort()
+      delete uploadAbortControllers.current[fileId]
+    }
+
+    // Clear progress interval
+    if (uploadIntervals.current[fileId]) {
+      clearInterval(uploadIntervals.current[fileId])
+      delete uploadIntervals.current[fileId]
+    }
+
+    // Remove file from selected files
+    setSelectedFiles((prev) => {
+      const file = prev.find((f) => f.id === fileId)
+      if (file?.preview) {
+        URL.revokeObjectURL(file.preview)
+      }
+      return prev.filter((f) => f.id !== fileId)
+    })
+
+    // Clear progress
+    setUploadProgress((prev) => {
+      const newProgress = { ...prev }
+      delete newProgress[fileId]
+      return newProgress
+    })
+  }
+
+  /**
    * Handle file upload
    * Why: Upload files to storage before sending message
-   * How: Uploads files to S3 via API, tracks progress
-   * Impact: Files stored and accessible in messages
+   * How: Uploads files to S3 via API, tracks progress with better granularity
+   * Impact: Files stored and accessible in messages with smooth progress feedback
    */
   const uploadFile = async (file) => {
+    // Create abort controller for this upload
+    const abortController = new AbortController()
+    uploadAbortControllers.current[file.id] = abortController
+
     try {
+      // Simulate progress for better UX (actual progress would come from axios onUploadProgress)
       setUploadProgress((prev) => ({
         ...prev,
-        [file.id]: 50, // Show progress
+        [file.id]: 10,
       }))
 
-      const files = await uploadFiles.mutateAsync([file.file])
+      // Simulate progress updates
+      const progressInterval = setInterval(() => {
+        // Check if upload was cancelled
+        if (abortController.signal.aborted) {
+          clearInterval(progressInterval)
+          return
+        }
+
+        setUploadProgress((prev) => {
+          const current = prev[file.id] || 10
+          if (current < 90) {
+            return {
+              ...prev,
+              [file.id]: Math.min(current + 10, 90),
+            }
+          }
+          return prev
+        })
+      }, 200)
+
+      uploadIntervals.current[file.id] = progressInterval
+
+      // Upload file with abort signal
+      const files = await uploadFiles.mutateAsync({
+        files: [file.file],
+        signal: abortController.signal,
+      })
       const uploadedFile = files[0]
 
+      // Clean up
+      clearInterval(progressInterval)
+      delete uploadIntervals.current[file.id]
+      delete uploadAbortControllers.current[file.id]
+      
       setUploadProgress((prev) => ({
         ...prev,
         [file.id]: 100,
       }))
 
+      // Keep progress at 100% briefly before clearing
+      setTimeout(() => {
+        setUploadProgress((prev) => {
+          const newProgress = { ...prev }
+          delete newProgress[file.id]
+          return newProgress
+        })
+      }, 500)
+
       return uploadedFile
     } catch (error) {
+      // Clean up on error
+      if (uploadIntervals.current[file.id]) {
+        clearInterval(uploadIntervals.current[file.id])
+        delete uploadIntervals.current[file.id]
+      }
+      delete uploadAbortControllers.current[file.id]
+
+      // Don't show error if it was cancelled
+      if (error.name === 'AbortError' || abortController.signal.aborted) {
+        console.log("[MessageInput] File upload cancelled:", file.name)
+        return null
+      }
+
       console.error("[MessageInput] File upload error:", error)
       setUploadProgress((prev) => {
         const newProgress = { ...prev }
@@ -161,30 +281,134 @@ function MessageInput({ channelId, onMessageSent }) {
 
     setError("")
 
-    try {
-      // Upload files if any
-      let attachments = []
-      if (selectedFiles.length > 0) {
-        attachments = await Promise.all(selectedFiles.map(uploadFile))
-      }
+    // Clear typing indicator immediately
+    if (typingStopTimeoutRef.current) {
+      clearTimeout(typingStopTimeoutRef.current)
+      typingStopTimeoutRef.current = null
+    }
+    if (socket && channelId) {
+      socket.emit('typing-stop', channelId)
+    }
 
+    const textContent = message.trim()
+    const hasFiles = selectedFiles.length > 0
+
+    try {
       // Detect video URLs and create video embed
-      // Why: Automatically embed YouTube/Vimeo videos when links are shared
-      // How: Extracts URLs from message, checks if video platform, creates embed object
-      // Impact: Rich video previews in chat messages
       let videoEmbed = null
-      const urls = extractUrls(message.trim())
+      const urls = extractUrls(textContent)
       if (urls.length > 0) {
-        // Check first URL for video platform
         const firstUrl = urls[0]
         if (isVideoUrl(firstUrl)) {
           videoEmbed = createVideoEmbed(firstUrl)
         }
       }
 
+      // If we have both text and files, send text immediately, files async
+      if (textContent && hasFiles) {
+        // Send text message immediately
+        const textMessageData = {
+          content: textContent,
+          messageType: videoEmbed ? "video" : "text",
+          videoEmbed: videoEmbed || undefined,
+        }
+
+        // Create optimistic message for text
+        const optimisticTextMessage = {
+          _id: `temp-${Date.now()}`,
+          sender: {
+            _id: user._id,
+            username: user.username,
+            email: user.email,
+            avatar: user.avatar,
+          },
+          channel: channelId,
+          content: textContent,
+          messageType: textMessageData.messageType,
+          videoEmbed: videoEmbed || undefined,
+          timestamp: new Date(),
+          createdAt: new Date(),
+          isOptimistic: true,
+        }
+
+        // Optimistically update cache
+        queryClient.setQueryData(messageKeys.list(channelId), (oldData) => {
+          if (!oldData) return oldData
+          const lastPageIndex = oldData.pages.length - 1
+          return {
+            ...oldData,
+            pages: oldData.pages.map((page, index) => {
+              if (index === lastPageIndex) {
+                return {
+                  ...page,
+                  messages: [...page.messages, optimisticTextMessage],
+                }
+              }
+              return page
+            }),
+          }
+        })
+
+        // Send text message via WebSocket immediately
+        if (socket) {
+          socket.emit('send-message', {
+            channelId,
+            ...textMessageData,
+          })
+        } else {
+          await createMessage.mutateAsync({
+            channelId,
+            messageData: textMessageData,
+          })
+        }
+
+        // Upload files in background and send as separate message
+        if (hasFiles) {
+          Promise.all(selectedFiles.map(uploadFile))
+            .then((uploadedFiles) => {
+              const fileMessageData = {
+                content: "",
+                messageType: "file",
+                attachments: uploadedFiles,
+              }
+
+              if (socket) {
+                socket.emit('send-message', {
+                  channelId,
+                  ...fileMessageData,
+                })
+              } else {
+                createMessage.mutateAsync({
+                  channelId,
+                  messageData: fileMessageData,
+                })
+              }
+            })
+            .catch((error) => {
+              console.error('[MessageInput] File upload error:', error)
+              setError("Some files failed to upload")
+            })
+        }
+
+        // Reset form
+        setMessage("")
+        setSelectedFiles([])
+        setUploadProgress({})
+        if (textareaRef.current) {
+          textareaRef.current.style.height = "auto"
+        }
+        return
+      }
+
+      // If only files or only text (no mix), handle normally
+      let attachments = []
+      if (hasFiles) {
+        attachments = await Promise.all(selectedFiles.map(uploadFile))
+      }
+
       // Prepare message data
       const messageData = {
-        content: message.trim(),
+        content: textContent || "",
         messageType: attachments.length > 0 ? "file" : (videoEmbed ? "video" : "text"),
         attachments: attachments.length > 0 ? attachments : undefined,
         videoEmbed: videoEmbed || undefined,
@@ -200,7 +424,7 @@ function MessageInput({ channelId, onMessageSent }) {
           avatar: user.avatar,
         },
         channel: channelId,
-        content: message.trim(),
+        content: textContent || "",
         messageType: messageData.messageType,
         attachments: attachments.length > 0 ? attachments : undefined,
         videoEmbed: videoEmbed || undefined,
@@ -291,37 +515,104 @@ function MessageInput({ channelId, onMessageSent }) {
 
   return (
     <div className="space-y-2">
-      {/* File Previews */}
+      {/* File Previews with Progress */}
       {selectedFiles.length > 0 && (
-        <div className="flex gap-2 flex-wrap">
-          {selectedFiles.map((file) => (
-            <div key={file.id} className="relative">
-              {file.preview ? (
-                <img
-                  src={file.preview}
-                  alt={file.name}
-                  className="h-20 w-20 object-cover rounded border"
-                />
-              ) : (
-                <div className="h-20 w-20 bg-muted rounded border flex items-center justify-center text-xs p-2">
-                  {file.name}
-                </div>
-              )}
-              <Button
-                size="icon"
-                variant="destructive"
-                className="absolute -top-2 -right-2 h-5 w-5"
-                onClick={() => handleRemoveFile(file.id)}
+        <div className="flex gap-2 flex-wrap p-2 bg-muted/30 rounded-lg border border-primary/10">
+          {selectedFiles.map((file) => {
+            const progress = uploadProgress[file.id] || 0
+            const isUploading = progress > 0 && progress < 100
+            const isUploaded = progress === 100
+            
+            return (
+              <motion.div
+                key={file.id}
+                className="relative group"
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.8 }}
               >
-                <X className="h-3 w-3" />
-              </Button>
-              {uploadProgress[file.id] && uploadProgress[file.id] < 100 && (
-                <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-xs text-center">
-                  {uploadProgress[file.id]}%
+                <div className="relative overflow-hidden rounded-lg border border-primary/20 bg-background/50">
+                  {file.preview ? (
+                    <img
+                      src={file.preview}
+                      alt={file.name}
+                      className="h-20 w-20 object-cover"
+                    />
+                  ) : (
+                    <div className="h-20 w-20 flex flex-col items-center justify-center text-xs p-2 bg-muted/50">
+                      <Paperclip className="h-6 w-6 mb-1 text-muted-foreground" />
+                      <span className="text-[10px] text-center truncate w-full px-1">{file.name}</span>
+                    </div>
+                  )}
+                  
+                  {/* Upload Progress Overlay */}
+                  {isUploading && (
+                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                      <div className="w-16 h-16 relative">
+                        <svg className="w-16 h-16 transform -rotate-90" viewBox="0 0 64 64">
+                          <circle
+                            cx="32"
+                            cy="32"
+                            r="28"
+                            stroke="currentColor"
+                            strokeWidth="4"
+                            fill="none"
+                            className="text-primary/20"
+                          />
+                          <circle
+                            cx="32"
+                            cy="32"
+                            r="28"
+                            stroke="currentColor"
+                            strokeWidth="4"
+                            fill="none"
+                            strokeDasharray={`${2 * Math.PI * 28}`}
+                            strokeDashoffset={`${2 * Math.PI * 28 * (1 - progress / 100)}`}
+                            className="text-primary transition-all duration-300"
+                            strokeLinecap="round"
+                          />
+                        </svg>
+                        <span className="absolute inset-0 flex items-center justify-center text-xs font-semibold text-white">
+                          {Math.round(progress)}%
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Upload Complete Indicator */}
+                  {isUploaded && !isUploading && (
+                    <div className="absolute top-1 right-1 bg-primary text-primary-foreground rounded-full p-1">
+                      <Check className="h-3 w-3" />
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          ))}
+                
+                {/* Remove/Cancel Button */}
+                <Button
+                  size="icon"
+                  variant="destructive"
+                  className={`absolute -top-2 -right-2 h-6 w-6 transition-opacity shadow-lg ${
+                    isUploading ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                  }`}
+                  onClick={() => {
+                    if (isUploading) {
+                      cancelFileUpload(file.id)
+                    } else {
+                      handleRemoveFile(file.id)
+                    }
+                  }}
+                  title={isUploading ? "Cancel upload" : "Remove file"}
+                >
+                  <X className="h-3 w-3" />
+                </Button>
+                
+                {/* File Info */}
+                <div className="mt-1 text-[10px] text-muted-foreground text-center max-w-[80px] truncate">
+                  {(file.size / 1024).toFixed(1)} KB
+                </div>
+              </motion.div>
+            )
+          })}
         </div>
       )}
 

@@ -170,14 +170,77 @@ const socketHandler = (io, redisClient) => {
           }, userId)
 
           await message.populate('sender', 'username email avatar')
+          
+          // Set initial status to 'sent'
+          message.status = 'sent'
+          await message.save()
 
-          // Broadcast to channel
+          // Broadcast to channel immediately for fast delivery
           io.to(`channel:${channelId}`).emit('new-message', { message })
+
+          // Update status to 'delivered' after a short delay
+          setTimeout(async () => {
+            try {
+              const updatedMessage = await Message.findById(message._id)
+              if (updatedMessage) {
+                updatedMessage.status = 'delivered'
+                await updatedMessage.save()
+                // Notify sender about delivery
+                socket.emit('message-status-update', {
+                  messageId: message._id,
+                  status: 'delivered',
+                })
+              }
+            } catch (err) {
+              logger.error('Error updating message status:', err)
+            }
+          }, 100)
 
           logger.info(`Message sent in channel ${channelId} by ${user.username}`)
         } catch (error) {
           logger.error('Error sending message:', error)
           socket.emit('error', { message: 'Failed to send message' })
+        }
+      })
+      
+      // Handle message read
+      socket.on('message-read', async (data) => {
+        try {
+          const { messageId } = data
+          const message = await Message.findById(messageId)
+          
+          if (!message) return
+          
+          // Check if user already read this message
+          const alreadyRead = message.readBy.some(
+            read => read.userId.toString() === userId
+          )
+          
+          if (!alreadyRead) {
+            message.readBy.push({
+              userId: userId,
+              readAt: new Date(),
+            })
+            
+            // If all recipients have read, update status to 'read'
+            const channel = await Channel.findById(message.channel)
+            if (channel) {
+              const memberCount = channel.members.length
+              if (message.readBy.length >= memberCount - 1) { // -1 to exclude sender
+                message.status = 'read'
+              }
+            }
+            
+            await message.save()
+            
+            // Notify sender about read status
+            io.to(`user:${message.sender}`).emit('message-status-update', {
+              messageId: message._id,
+              status: message.status,
+            })
+          }
+        } catch (error) {
+          logger.error('Error handling message read:', error)
         }
       })
 
@@ -239,9 +302,26 @@ const socketHandler = (io, redisClient) => {
 
           const message = await messageService.editMessage(messageId, content, userId)
           await message.populate('sender', 'username email avatar')
+          await message.populate('conversation', 'participants')
 
-          // Broadcast to channel
-          io.to(`channel:${message.channel}`).emit('message-edited', { message })
+          // Broadcast to channel or conversation
+          if (message.channel) {
+            // Channel message - broadcast to channel room
+            io.to(`channel:${message.channel}`).emit('message-edited', { message })
+            logger.info(`Message edited in channel ${message.channel} by ${user.username}`)
+          } else if (message.conversation) {
+            // Direct message - broadcast to conversation participants
+            const Conversation = require('../models/Conversation')
+            const conversation = await Conversation.findById(message.conversation)
+            if (conversation) {
+              // Send to all participants
+              conversation.participants.forEach(participantId => {
+                const participantIdStr = participantId.toString()
+                io.to(`user:${participantIdStr}`).emit('message-edited', { message })
+              })
+              logger.info(`Direct message edited in conversation ${message.conversation} by ${user.username}`)
+            }
+          }
         } catch (error) {
           logger.error('Error editing message:', error)
           socket.emit('error', { message: 'Failed to edit message' })
@@ -254,9 +334,32 @@ const socketHandler = (io, redisClient) => {
           const { messageId } = messageData
 
           const message = await messageService.deleteMessage(messageId, userId)
+          await message.populate('conversation', 'participants')
 
-          // Broadcast to channel
-          io.to(`channel:${message.channel}`).emit('message-deleted', { messageId })
+          // Broadcast to channel or conversation
+          if (message.channel) {
+            // Channel message - broadcast to channel room
+            io.to(`channel:${message.channel}`).emit('message-deleted', { 
+              messageId,
+              channelId: message.channel 
+            })
+            logger.info(`Message deleted in channel ${message.channel} by ${user.username}`)
+          } else if (message.conversation) {
+            // Direct message - broadcast to conversation participants
+            const Conversation = require('../models/Conversation')
+            const conversation = await Conversation.findById(message.conversation)
+            if (conversation) {
+              // Send to all participants
+              conversation.participants.forEach(participantId => {
+                const participantIdStr = participantId.toString()
+                io.to(`user:${participantIdStr}`).emit('message-deleted', { 
+                  messageId,
+                  conversationId: message.conversation 
+                })
+              })
+              logger.info(`Direct message deleted in conversation ${message.conversation} by ${user.username}`)
+            }
+          }
         } catch (error) {
           logger.error('Error deleting message:', error)
           socket.emit('error', { message: 'Failed to delete message' })
@@ -279,6 +382,10 @@ const socketHandler = (io, redisClient) => {
           }, userId)
 
           await message.populate('sender', 'username email avatar')
+          
+          // Set initial status to 'sent'
+          message.status = 'sent'
+          await message.save()
 
           // Send to recipient
           io.to(`user:${recipientId}`).emit('new-direct-message', { message })
@@ -286,10 +393,70 @@ const socketHandler = (io, redisClient) => {
           // Also send back to sender for confirmation
           socket.emit('direct-message-sent', { message })
 
+          // Update status to 'delivered' after a short delay
+          setTimeout(async () => {
+            try {
+              const Conversation = require('../models/Conversation')
+              const conversation = await Conversation.findOne({
+                participants: { $all: [userId, recipientId] }
+              })
+              
+              if (conversation) {
+                const updatedMessage = await Message.findById(message._id)
+                if (updatedMessage) {
+                  updatedMessage.status = 'delivered'
+                  await updatedMessage.save()
+                  // Notify sender about delivery
+                  socket.emit('message-status-update', {
+                    messageId: message._id,
+                    status: 'delivered',
+                  })
+                }
+              }
+            } catch (err) {
+              logger.error('Error updating direct message status:', err)
+            }
+          }, 100)
+
           logger.info(`Direct message sent from ${user.username} to ${recipientId}`)
         } catch (error) {
           logger.error('Error sending direct message:', error)
           socket.emit('error', { message: 'Failed to send direct message' })
+        }
+      })
+
+      // Handle direct message typing
+      socket.on('direct-message-typing', async (data) => {
+        try {
+          const { conversationId, recipientId } = data
+          
+          // Send typing indicator to recipient
+          if (recipientId) {
+            io.to(`user:${recipientId}`).emit('direct-message-typing', {
+              conversationId,
+              userId,
+              username: user.username,
+            })
+          }
+        } catch (error) {
+          logger.error('Error handling direct message typing:', error)
+        }
+      })
+
+      // Handle direct message typing stop
+      socket.on('direct-message-typing-stop', async (data) => {
+        try {
+          const { conversationId, recipientId } = data
+          
+          // Send typing stop to recipient
+          if (recipientId) {
+            io.to(`user:${recipientId}`).emit('direct-message-typing-stop', {
+              conversationId,
+              userId,
+            })
+          }
+        } catch (error) {
+          logger.error('Error handling direct message typing stop:', error)
         }
       })
 

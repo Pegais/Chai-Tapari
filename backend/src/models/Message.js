@@ -104,6 +104,21 @@ const messageSchema = new mongoose.Schema({
     default: Date.now,
     index: true,
   },
+  status: {
+    type: String,
+    enum: ['sending', 'sent', 'delivered', 'read'],
+    default: 'sent',
+  },
+  readBy: [{
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+    },
+    readAt: {
+      type: Date,
+      default: Date.now,
+    },
+  }],
 }, {
   timestamps: true,
   toJSON: {

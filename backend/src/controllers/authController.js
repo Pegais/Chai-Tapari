@@ -174,10 +174,54 @@ const logout = async (req, res, next) => {
   }
 }
 
+/**
+ * Google OAuth authentication
+ * Why: Allow users to sign in with Google
+ * How: Verifies Google ID token, creates or logs in user
+ * Impact: Users can authenticate with Google account
+ * 
+ * Request Body:
+ * - idToken: string (required, Google ID token)
+ * 
+ * Response:
+ * - 200: Authentication successful
+ * - 401: Invalid token
+ */
+const googleAuth = async (req, res, next) => {
+  try {
+    const { idToken } = req.body
+
+    if (!idToken) {
+      return res.status(400).json({
+        success: false,
+        message: 'Google ID token is required',
+      })
+    }
+
+    // Authenticate with Google
+    const user = await authService.authenticateGoogle(idToken)
+
+    // Generate token
+    const token = authService.generateToken(user._id)
+
+    res.status(200).json({
+      success: true,
+      message: 'Google authentication successful',
+      data: {
+        user,
+        token,
+      },
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
 module.exports = {
   register,
   login,
   getMe,
   logout,
+  googleAuth,
 }
 
