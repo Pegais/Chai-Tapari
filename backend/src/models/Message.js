@@ -29,12 +29,22 @@ const messageSchema = new mongoose.Schema({
   channel: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Channel',
-    required: [true, 'Channel is required'],
+    required: false,
+    index: true,
+  },
+  conversation: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Conversation',
+    required: false,
+    default: null,
     index: true,
   },
   content: {
     type: String,
-    required: [true, 'Message content is required'],
+    required: function() {
+      // Content required if no attachments
+      return !this.attachments || this.attachments.length === 0
+    },
     trim: true,
     maxlength: [5000, 'Message content cannot exceed 5000 characters'],
   },
@@ -105,14 +115,31 @@ const messageSchema = new mongoose.Schema({
 })
 
 /**
- * Compound index for efficient queries
- * Why: Improve query performance for channel message retrieval
- * How: Creates compound index on channel and timestamp
- * Impact: Faster pagination and message retrieval by channel
+ * Compound indexes for efficient queries
+ * Why: Improve query performance for message retrieval
+ * How: Creates compound indexes on channel/conversation and timestamp
+ * Impact: Faster pagination and message retrieval
  */
 messageSchema.index({ channel: 1, timestamp: -1 })
+messageSchema.index({ conversation: 1, timestamp: -1 })
 messageSchema.index({ sender: 1, timestamp: -1 })
 messageSchema.index({ isDeleted: 1 })
+
+/**
+ * Pre-save validation
+ * Why: Ensure message has either channel or conversation
+ * How: Validates that at least one is provided
+ * Impact: Prevents invalid messages
+ */
+messageSchema.pre('save', function(next) {
+  if (!this.channel && !this.conversation) {
+    return next(new Error('Message must have either a channel or conversation'))
+  }
+  if (this.channel && this.conversation) {
+    return next(new Error('Message cannot have both channel and conversation'))
+  }
+  next()
+})
 
 /**
  * Method to soft delete message

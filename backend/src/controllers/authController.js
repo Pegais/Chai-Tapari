@@ -151,21 +151,27 @@ const getMe = async (req, res, next) => {
 
 /**
  * Logout user
- * Why: End user session
- * How: Clears session data (if using sessions)
- * Impact: User session terminated
+ * Why: End user session and set user offline
+ * How: Calls logoutUser service to set offline and clear socket IDs
+ * Impact: User session terminated and marked offline in database
  * 
  * Response:
  * - 200: Logout successful
  */
-const logout = async (req, res) => {
-  // If using sessions, destroy session here
-  // For JWT, logout is handled client-side by removing token
+const logout = async (req, res, next) => {
+  try {
+    const userId = req.user.userId
 
-  res.status(200).json({
-    success: true,
-    message: 'Logout successful',
-  })
+    // Set user offline and clear socket connections
+    await authService.logoutUser(userId)
+
+    res.status(200).json({
+      success: true,
+      message: 'Logout successful',
+    })
+  } catch (error) {
+    next(error)
+  }
 }
 
 module.exports = {

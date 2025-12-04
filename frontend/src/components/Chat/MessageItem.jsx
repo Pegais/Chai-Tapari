@@ -8,17 +8,29 @@
 
 import React, { useState } from "react"
 import { motion } from "framer-motion"
-import { getUserById, mockCurrentUser } from "../../data/mockData"
 import { Avatar, AvatarImage, AvatarFallback } from "../ui/avatar"
 import { Button } from "../ui/button"
+import { Input } from "../ui/input"
 import { format } from "date-fns"
-import { Edit2, Trash2, MoreVertical } from "lucide-react"
+import { Edit2, Trash2 } from "lucide-react"
 import LinkPreview from "./LinkPreview"
 import VideoEmbed from "./VideoEmbed"
+import { useAuth } from "../../context/AuthContext"
+import { useEditMessage, useDeleteMessage } from "../../hooks/useMessages"
+import { getSocket } from "../../services/socket"
 
 function MessageItem({ message, showAvatar, showTimestamp }) {
-  const sender = getUserById(message.sender)
-  const isOwnMessage = message.sender === mockCurrentUser._id
+  const { user } = useAuth()
+  const editMessage = useEditMessage()
+  const deleteMessage = useDeleteMessage()
+  const socket = getSocket()
+  
+  // Get sender info from message (populated by backend)
+  const sender = message.sender && typeof message.sender === 'object' 
+    ? message.sender 
+    : { _id: message.sender, username: 'Unknown', avatar: null }
+  
+  const isOwnMessage = user && (message.sender?._id || message.sender) === user._id
   const [isEditing, setIsEditing] = useState(false)
   const [editContent, setEditContent] = useState(message.content)
 
@@ -38,9 +50,29 @@ function MessageItem({ message, showAvatar, showTimestamp }) {
    * How: Calls API to update message, updates local state
    * Impact: Message content updated in database and UI
    */
-  const handleSaveEdit = () => {
-    // TODO: Call API to update message
-    setIsEditing(false)
+  const handleSaveEdit = async () => {
+    if (!editContent.trim()) {
+      return
+    }
+
+    try {
+      if (socket) {
+        // Send via WebSocket for real-time update
+        socket.emit('edit-message', {
+          messageId: message._id,
+          content: editContent.trim(),
+        })
+      } else {
+        // Fallback to REST API
+        await editMessage.mutateAsync({
+          messageId: message._id,
+          content: editContent.trim(),
+        })
+      }
+      setIsEditing(false)
+    } catch (error) {
+      console.error("[MessageItem] Edit error:", error)
+    }
   }
 
   /**
@@ -49,10 +81,23 @@ function MessageItem({ message, showAvatar, showTimestamp }) {
    * How: Calls API to soft-delete message
    * Impact: Message marked as deleted, hidden from view
    */
-  const handleDelete = () => {
-    // TODO: Call API to delete message
-    if (window.confirm("Are you sure you want to delete this message?")) {
-      // Delete message
+  const handleDelete = async () => {
+    if (!window.confirm("Are you sure you want to delete this message?")) {
+      return
+    }
+
+    try {
+      if (socket) {
+        // Send via WebSocket for real-time update
+        socket.emit('delete-message', {
+          messageId: message._id,
+        })
+      } else {
+        // Fallback to REST API
+        await deleteMessage.mutateAsync(message._id)
+      }
+    } catch (error) {
+      console.error("[MessageItem] Delete error:", error)
     }
   }
 
@@ -75,8 +120,8 @@ function MessageItem({ message, showAvatar, showTimestamp }) {
       {/* Avatar - shown only for first message in group */}
       {showAvatar && (
         <Avatar className="h-8 w-8 flex-shrink-0">
-          <AvatarImage src={sender?.avatar} alt={sender?.username} />
-          <AvatarFallback>{sender?.username?.charAt(0).toUpperCase()}</AvatarFallback>
+          <AvatarImage src={sender?.avatar || null} alt={sender?.username || 'User'} />
+          <AvatarFallback>{(sender?.username || 'U').charAt(0).toUpperCase()}</AvatarFallback>
         </Avatar>
       )}
       
@@ -85,7 +130,7 @@ function MessageItem({ message, showAvatar, showTimestamp }) {
         {/* Sender Name and Timestamp - shown only for first message */}
         {showAvatar && (
           <div className={`flex items-baseline gap-2 mb-1 ${isOwnMessage ? "flex-row-reverse" : ""}`}>
-            <span className="font-semibold text-sm">{sender?.username}</span>
+            <span className="font-semibold text-sm">{sender?.username || 'Unknown User'}</span>
             {showTimestamp && (
               <span className="text-xs text-muted-foreground">
                 {format(new Date(message.timestamp), "h:mm a")}

@@ -25,12 +25,13 @@ const User = require('../models/User')
  * Flow:
  * 1. Check if channel name already exists
  * 2. Verify creator user exists
- * 3. Create channel document
- * 4. Add creator as first member
- * 5. Return channel with populated members
+ * 3. For private channels: validate at least one additional member
+ * 4. Create channel document
+ * 5. Add creator and members
+ * 6. Return channel with populated members
  */
 const createChannel = async (channelData, creatorId) => {
-  const { name, description, isPrivate } = channelData
+  const { name, description, isPrivate, members } = channelData
 
   // Check if channel name already exists
   const existingChannel = await Channel.findOne({ name: name.toLowerCase() })
@@ -49,11 +50,43 @@ const createChannel = async (channelData, creatorId) => {
     throw error
   }
 
-  // Create channel
+  // For private channels: validate that at least one additional member is provided
+  if (isPrivate) {
+    if (!members || !Array.isArray(members) || members.length === 0) {
+      const error = new Error('Private channels require at least one member (besides creator)')
+      error.statusCode = 400
+      throw error
+    }
+
+    // Filter out creator from members list and validate
+    const additionalMembers = members.filter(memberId => 
+      memberId.toString() !== creatorId.toString()
+    )
+
+    if (additionalMembers.length === 0) {
+      const error = new Error('Private channels require at least one member besides the creator')
+      error.statusCode = 400
+      throw error
+    }
+
+    // Verify all member IDs exist
+    const validMembers = await User.find({ _id: { $in: additionalMembers } })
+    if (validMembers.length !== additionalMembers.length) {
+      const error = new Error('One or more member IDs are invalid')
+      error.statusCode = 400
+      throw error
+    }
+  }
+
+  // Create channel with members
+  const channelMembers = isPrivate 
+    ? [creatorId, ...members.filter(m => m.toString() !== creatorId.toString())]
+    : [creatorId] // Public channels start with just creator
+
   const channel = new Channel({
     name: name.toLowerCase(),
     description: description || '',
-    members: [creatorId],
+    members: channelMembers,
     createdBy: creatorId,
     isPrivate: isPrivate || false,
   })
@@ -101,15 +134,29 @@ const getAllChannels = async (userId = null) => {
 }
 
 /**
- * Get channel by ID
+ * Get channel by ID or name
  * Why: Retrieve specific channel details
- * How: Queries database by channel ID with population
+ * How: Queries database by channel ID or name with population
  * Impact: Provides channel information for chat interface
  */
 const getChannelById = async (channelId, userId = null) => {
-  const channel = await Channel.findById(channelId)
-    .populate('members', 'username email avatar')
-    .populate('createdBy', 'username email avatar')
+  // Check if channelId is a valid MongoDB ObjectId (24 hex characters)
+  const isObjectId = /^[0-9a-fA-F]{24}$/.test(channelId)
+  
+  let channel
+  if (isObjectId) {
+    // Try to find by ID first
+    channel = await Channel.findById(channelId)
+      .populate('members', 'username email avatar')
+      .populate('createdBy', 'username email avatar')
+  }
+  
+  // If not found by ID or not a valid ObjectId, try by name
+  if (!channel) {
+    channel = await Channel.findOne({ name: channelId.toLowerCase() })
+      .populate('members', 'username email avatar')
+      .populate('createdBy', 'username email avatar')
+  }
 
   if (!channel) {
     const error = new Error('Channel not found')
@@ -136,8 +183,10 @@ const getChannelById = async (channelId, userId = null) => {
  * Flow:
  * 1. Find channel by ID
  * 2. Check if user already member
- * 3. Add user to members array
- * 4. Save and return updated channel
+ * 3. For public channels: auto-join allowed
+ * 4. For private channels: require explicit invitation
+ * 5. Add user to members array
+ * 6. Save and return updated channel
  */
 const joinChannel = async (channelId, userId) => {
   const channel = await Channel.findById(channelId)
@@ -150,10 +199,19 @@ const joinChannel = async (channelId, userId) => {
 
   // Check if already member
   if (channel.isMember(userId)) {
+    await channel.populate('members', 'username email avatar')
     return channel
   }
 
-  // Add member
+  // For public channels, allow auto-join
+  // For private channels, require explicit invitation
+  if (channel.isPrivate) {
+    const error = new Error('Cannot join private channel. Invitation required.')
+    error.statusCode = 403
+    throw error
+  }
+
+  // Auto-join public channel
   await channel.addMember(userId)
   await channel.populate('members', 'username email avatar')
 

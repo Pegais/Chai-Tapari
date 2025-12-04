@@ -29,7 +29,15 @@ const jwt = require('jsonwebtoken')
  * 5. Return user data without password
  */
 const registerUser = async (userData) => {
-  const { username, email, password, avatar } = userData
+  const { username, email, password, avatar: avatarInput } = userData
+  
+  // Convert avatar filename to full URL if it's just a filename
+  let avatar = avatarInput
+  if (avatarInput && !avatarInput.startsWith('http://') && !avatarInput.startsWith('https://')) {
+    // It's a filename, construct the backend URL
+    const backendUrl = process.env.BACKEND_URL || 'http://localhost:5000'
+    avatar = `${backendUrl}/api/avatars/${avatarInput}`
+  }
 
   // Check if user already exists
   const existingUser = await User.findOne({
@@ -163,11 +171,43 @@ const getUserById = async (userId) => {
   }
 }
 
+/**
+ * Logout user
+ * Why: Set user offline and clear socket connections
+ * How: Updates user to offline, clears socket IDs
+ * Impact: User marked as offline in database on logout
+ */
+const logoutUser = async (userId) => {
+  const user = await User.findById(userId)
+
+  if (!user) {
+    const error = new Error('User not found')
+    error.statusCode = 404
+    throw error
+  }
+
+  // Set user offline and clear all socket IDs
+  user.isOnline = false
+  user.socketIds = []
+  user.lastSeen = new Date()
+  await user.save()
+
+  return {
+    _id: user._id,
+    username: user.username,
+    email: user.email,
+    avatar: user.avatar,
+    lastSeen: user.lastSeen,
+    isOnline: user.isOnline,
+  }
+}
+
 module.exports = {
   registerUser,
   loginUser,
   generateToken,
   verifyToken,
   getUserById,
+  logoutUser,
 }
 

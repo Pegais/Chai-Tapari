@@ -9,48 +9,200 @@
 import React, { useState, useEffect } from "react"
 import { useParams } from "react-router-dom"
 import { motion } from "framer-motion"
-import { getChannelById, getMessagesByChannel } from "../../data/mockData"
 import MessageList from "./MessageList"
 import MessageInput from "./MessageInput"
 import TypingIndicator from "./TypingIndicator"
-import { getTypingUsers } from "../../data/mockData"
+import { useChannel, useJoinChannel } from "../../hooks/useChannels"
+import { useMessages, messageKeys } from "../../hooks/useMessages"
+import { useAuth } from "../../context/AuthContext"
+import { getSocket } from "../../services/socket"
+import { useQueryClient } from "@tanstack/react-query"
 
 function ChatWindow() {
   const { channelId } = useParams()
-  const [channel, setChannel] = useState(null)
-  const [messages, setMessages] = useState([])
+  const { user } = useAuth()
+  const queryClient = useQueryClient()
+  const { data: channel, isLoading: channelLoading, error: channelError } = useChannel(channelId)
+  const { data: messagesData, isLoading: messagesLoading } = useMessages(channelId)
   const [typingUsers, setTypingUsers] = useState([])
+  const joinChannel = useJoinChannel()
+
+  // Extract messages from infinite query data
+  // Why: Flatten paginated messages into single array
+  // How: Combines all pages of messages
+  // Impact: All messages available for display
+  const messages = messagesData?.pages?.flatMap(page => page.messages || []) || []
 
   /**
-   * Load channel and messages when channel changes
-   * Why: Update chat content when user switches channels
-   * How: Fetches channel data and messages for selected channel
-   * Impact: Displays correct messages for current channel
+   * Auto-join public channels
+   * Why: Allow users to automatically join public channels
+   * How: Checks if user is member, joins if not
+   * Impact: Seamless access to public channels
    */
   useEffect(() => {
-    if (channelId) {
-      const channelData = getChannelById(channelId)
-      const channelMessages = getMessagesByChannel(channelId)
-      setChannel(channelData)
-      setMessages(channelMessages)
-      setTypingUsers(getTypingUsers(channelId))
+    if (channel && !channel.isPrivate && user) {
+      const isMember = channel.members?.some(member => 
+        (typeof member === 'object' ? member._id : member) === user._id
+      )
+      
+      if (!isMember) {
+        joinChannel.mutate(channel._id, {
+          onSuccess: () => {
+            console.log('[ChatWindow] Auto-joined public channel')
+          },
+          onError: (error) => {
+            console.error('[ChatWindow] Failed to join channel:', error)
+          }
+        })
+      }
     }
-  }, [channelId])
+  }, [channel, user, joinChannel])
+
+  /**
+   * Set up WebSocket listeners
+   * Why: Receive real-time updates for messages and typing
+   * How: Connects to socket and listens for events
+   * Impact: Real-time messaging and presence updates
+   */
+  useEffect(() => {
+    if (!channelId) return
+
+    const socket = getSocket()
+    if (!socket) return
+
+    // Join channel room
+    socket.emit('join-channel', channelId)
+
+    // Listen for new messages
+    const handleNewMessage = (data) => {
+      // Update React Query cache immediately for instant UI update
+      const message = data.message || data
+      
+      if (message) {
+        const messageChannelId = typeof message.channel === 'object' 
+          ? message.channel._id || message.channel 
+          : message.channel
+        
+        if (messageChannelId === channelId) {
+          console.log('[ChatWindow] New message received:', message)
+          
+          // Optimistically update the cache
+          queryClient.setQueryData(messageKeys.list(channelId), (oldData) => {
+            if (!oldData) return oldData
+            
+            // Check if message already exists (prevent duplicates)
+            const messageExists = oldData.pages.some(page => 
+              page.messages.some(msg => {
+                const msgId = msg._id || msg
+                const newMsgId = message._id || message
+                const senderId = msg.sender?._id || msg.sender
+                const newSenderId = message.sender?._id || message.sender
+                return msgId === newMsgId || (msg.isOptimistic && msg.content === message.content && senderId === newSenderId)
+              })
+            )
+            
+            if (messageExists) {
+              // Replace optimistic message with real message
+              return {
+                ...oldData,
+                pages: oldData.pages.map((page) => ({
+                  ...page,
+                  messages: page.messages.map(msg => {
+                    const senderId = msg.sender?._id || msg.sender
+                    const newSenderId = message.sender?._id || message.sender
+                    // Replace optimistic message with real one
+                    if (msg.isOptimistic && msg.content === message.content && senderId === newSenderId) {
+                      return message
+                    }
+                    // Update if same ID
+                    if (msg._id === message._id) {
+                      return message
+                    }
+                    return msg
+                  }).filter((msg, index, arr) => {
+                    // Remove duplicates by ID
+                    const msgId = msg._id
+                    return arr.findIndex(m => (m._id || m) === msgId) === index
+                  }),
+                })),
+              }
+            }
+            
+            // Add message to the last page (newest messages are at the end)
+            const lastPageIndex = oldData.pages.length - 1
+            return {
+              ...oldData,
+              pages: oldData.pages.map((page, index) => {
+                if (index === lastPageIndex) {
+                  // Add to end of last page (newest messages)
+                  return {
+                    ...page,
+                    messages: [...page.messages, message],
+                  }
+                }
+                return page
+              }),
+            }
+          })
+        }
+      }
+    }
+
+    // Listen for typing indicators
+    const handleTyping = (data) => {
+      if (data.channelId === channelId) {
+        setTypingUsers((prev) => {
+          if (!prev.includes(data.username)) {
+            return [...prev, data.username]
+          }
+          return prev
+        })
+      }
+    }
+
+    const handleTypingStop = (data) => {
+      if (data.channelId === channelId) {
+        setTypingUsers((prev) => prev.filter(user => user !== data.username))
+      }
+    }
+
+    socket.on('new-message', handleNewMessage)
+    socket.on('user-typing', handleTyping)
+    socket.on('user-stopped-typing', handleTypingStop)
+
+    // Cleanup on unmount
+    return () => {
+      socket.off('new-message', handleNewMessage)
+      socket.off('user-typing', handleTyping)
+      socket.off('user-stopped-typing', handleTypingStop)
+      socket.emit('leave-channel', channelId)
+    }
+  }, [channelId, queryClient])
 
   /**
    * Handle new message
    * Why: Add new message to chat
-   * How: Appends message to messages array
+   * How: Messages are handled via WebSocket and React Query
    * Impact: Real-time message updates in chat
    */
   const handleNewMessage = (message) => {
-    setMessages((prev) => [...prev, message])
+    // Message will be added via WebSocket
+    // React Query will automatically refetch
+    console.log('[ChatWindow] Message sent:', message)
   }
 
-  if (!channel) {
+  if (channelLoading || messagesLoading) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        <p className="text-muted-foreground">Select a channel to start chatting</p>
+        <p className="text-muted-foreground">Loading...</p>
+      </div>
+    )
+  }
+
+  if (channelError || !channel) {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <p className="text-destructive">Error loading channel</p>
       </div>
     )
   }
@@ -73,11 +225,30 @@ function ChatWindow() {
           #{channel.name}
         </h1>
         <p className="text-sm text-muted-foreground">{channel.description}</p>
+        
+        {/* Privacy Notice */}
+        <motion.div
+          className="mt-2 p-2 bg-primary/10 border border-primary/20 rounded-md"
+          initial={{ opacity: 0, y: -5 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+        >
+          <p className="text-xs text-muted-foreground flex items-center gap-2">
+            <span className="text-primary">🔒</span>
+            <span>For privacy, we will be deleting conversation after 48 hours.</span>
+          </p>
+        </motion.div>
       </motion.div>
 
       {/* Messages List - Scrollable (takes remaining space) */}
       <div className="flex-1 overflow-y-auto min-h-0">
-        <MessageList messages={messages} channelId={channelId} />
+        {messagesLoading ? (
+          <div className="flex items-center justify-center h-full">
+            <p className="text-muted-foreground">Loading messages...</p>
+          </div>
+        ) : (
+          <MessageList messages={messages} channelId={channelId} conversationId={null} />
+        )}
       </div>
 
       {/* Typing Indicator - Fixed above input */}

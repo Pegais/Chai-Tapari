@@ -10,10 +10,115 @@ import React, { useRef, useEffect } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import MessageItem from "./MessageItem"
 import { format } from "date-fns"
+import { getSocket } from "../../services/socket"
+import { useQueryClient } from "@tanstack/react-query"
+import { messageKeys } from "../../hooks/useMessages"
 
-function MessageList({ messages, channelId }) {
+function MessageList({ messages = [], channelId, conversationId }) {
   const scrollRef = useRef(null)
   const messagesEndRef = useRef(null)
+  const socket = getSocket()
+  const queryClient = useQueryClient()
+
+  /**
+   * Set up WebSocket listeners for real-time message updates
+   * Why: Receive new messages, edits, and deletes in real-time
+   * How: Listens to socket events and updates message list
+   * Impact: Real-time message synchronization
+   */
+  useEffect(() => {
+    if (!socket || (!channelId && !conversationId)) return
+
+    const handleNewMessage = (data) => {
+      // Message will be added via WebSocket
+      const message = data.message || data
+      
+      if (channelId) {
+        const messageChannelId = typeof message.channel === 'object' 
+          ? message.channel._id || message.channel 
+          : message.channel
+        
+        if (messageChannelId === channelId) {
+          console.log('[MessageList] New message received:', message)
+          
+          // Update cache if not already updated
+          queryClient.setQueryData(messageKeys.list(channelId), (oldData) => {
+            if (!oldData) return oldData
+            
+            // Check if message already exists
+            const messageExists = oldData.pages.some(page => 
+              page.messages.some(msg => {
+                const msgId = msg._id || msg
+                const newMsgId = message._id || message
+                return msgId === newMsgId
+              })
+            )
+            
+            if (messageExists) return oldData
+            
+            // Add message to the last page (newest messages are at the end)
+            const lastPageIndex = oldData.pages.length - 1
+            return {
+              ...oldData,
+              pages: oldData.pages.map((page, index) => {
+                if (index === lastPageIndex) {
+                  // Add to end of last page (newest messages)
+                  return {
+                    ...page,
+                    messages: [...page.messages, message],
+                  }
+                }
+                return page
+              }),
+            }
+          })
+          
+          // Scroll to bottom when new message arrives
+          setTimeout(() => {
+            if (messagesEndRef.current) {
+              messagesEndRef.current.scrollIntoView({ behavior: "smooth" })
+            }
+          }, 100)
+        }
+      } else if (conversationId) {
+        const messageConversationId = typeof message.conversation === 'object' 
+          ? message.conversation._id || message.conversation 
+          : message.conversation
+        
+        if (messageConversationId === conversationId) {
+          console.log('[MessageList] New direct message received:', message)
+          // Scroll to bottom
+          setTimeout(() => {
+            if (messagesEndRef.current) {
+              messagesEndRef.current.scrollIntoView({ behavior: "smooth" })
+            }
+          }, 100)
+        }
+      }
+    }
+
+    const handleMessageEdited = (data) => {
+      // Message will be updated via WebSocket
+      console.log('[MessageList] Message edited:', data)
+    }
+
+    const handleMessageDeleted = (data) => {
+      // Message will be removed via WebSocket
+      console.log('[MessageList] Message deleted:', data)
+    }
+
+    socket.on('new-message', handleNewMessage)
+    socket.on('new-direct-message', handleNewMessage)
+    socket.on('message-edited', handleMessageEdited)
+    socket.on('message-deleted', handleMessageDeleted)
+
+    return () => {
+      socket.off('new-message', handleNewMessage)
+      socket.off('new-direct-message', handleNewMessage)
+      socket.off('message-edited', handleMessageEdited)
+      socket.off('message-deleted', handleMessageDeleted)
+    }
+  }, [socket, channelId, conversationId, queryClient])
 
   /**
    * Auto-scroll to bottom when new messages arrive
@@ -49,9 +154,17 @@ function MessageList({ messages, channelId }) {
       })
     }
 
+    // Get sender ID (handle both object and string)
+    const senderId = typeof message.sender === 'object' 
+      ? message.sender._id 
+      : message.sender
+    const prevSenderId = prevMessage 
+      ? (typeof prevMessage.sender === 'object' ? prevMessage.sender._id : prevMessage.sender)
+      : null
+
     // Group consecutive messages from same sender
     const shouldGroup = prevMessage && 
-      prevMessage.sender === message.sender &&
+      senderId === prevSenderId &&
       new Date(message.timestamp) - new Date(prevMessage.timestamp) < 5 * 60 * 1000 // 5 minutes
 
     if (shouldGroup && currentGroup) {
@@ -59,7 +172,7 @@ function MessageList({ messages, channelId }) {
     } else {
       currentGroup = {
         type: "message-group",
-        sender: message.sender,
+        sender: senderId,
         messages: [message],
       }
       groupedMessages.push(currentGroup)

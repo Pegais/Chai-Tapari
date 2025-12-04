@@ -79,8 +79,14 @@ const socketHandler = (io, redisClient) => {
         $set: { isOnline: true },
       })
 
-      // Add to Redis presence set
-      await redisClient.sAdd('online_users', userId)
+      // Add to Redis presence set (if Redis available)
+      if (redisClient) {
+        try {
+          await redisClient.sAdd('online_users', userId)
+        } catch (error) {
+          logger.warn('[Redis] Failed to add user to online set:', error.message)
+        }
+      }
 
       // Join user's personal room
       socket.join(`user:${userId}`)
@@ -112,8 +118,14 @@ const socketHandler = (io, redisClient) => {
           socket.join(`channel:${channelId}`)
           socket.emit('channel:joined', { channelId })
 
-          // Add to Redis channel presence
-          await redisClient.sAdd(`channel:${channelId}:members`, userId)
+          // Add to Redis channel presence (if Redis available)
+          if (redisClient) {
+            try {
+              await redisClient.sAdd(`channel:${channelId}:members`, userId)
+            } catch (error) {
+              logger.warn('[Redis] Failed to add user to channel presence:', error.message)
+            }
+          }
 
           logger.info(`User ${user.username} joined channel ${channelId}`)
         } catch (error) {
@@ -128,8 +140,14 @@ const socketHandler = (io, redisClient) => {
           socket.leave(`channel:${channelId}`)
           socket.emit('channel:left', { channelId })
 
-          // Remove from Redis channel presence
-          await redisClient.sRem(`channel:${channelId}:members`, userId)
+          // Remove from Redis channel presence (if Redis available)
+          if (redisClient) {
+            try {
+              await redisClient.sRem(`channel:${channelId}:members`, userId)
+            } catch (error) {
+              logger.warn('[Redis] Failed to remove user from channel presence:', error.message)
+            }
+          }
 
           logger.info(`User ${user.username} left channel ${channelId}`)
         } catch (error) {
@@ -172,8 +190,14 @@ const socketHandler = (io, redisClient) => {
             return
           }
 
-          // Add to typing set in Redis
-          await redisClient.sAdd(`channel:${channelId}:typing`, userId)
+          // Add to typing set in Redis (if Redis available)
+          if (redisClient) {
+            try {
+              await redisClient.sAdd(`channel:${channelId}:typing`, userId)
+            } catch (error) {
+              logger.warn('[Redis] Failed to add user to typing set:', error.message)
+            }
+          }
 
           // Broadcast to channel (except sender)
           socket.to(`channel:${channelId}`).emit('user-typing', {
@@ -189,8 +213,14 @@ const socketHandler = (io, redisClient) => {
       // Handle typing stop
       socket.on('typing-stop', async (channelId) => {
         try {
-          // Remove from typing set in Redis
-          await redisClient.sRem(`channel:${channelId}:typing`, userId)
+          // Remove from typing set in Redis (if Redis available)
+          if (redisClient) {
+            try {
+              await redisClient.sRem(`channel:${channelId}:typing`, userId)
+            } catch (error) {
+              logger.warn('[Redis] Failed to remove user from typing set:', error.message)
+            }
+          }
 
           // Broadcast to channel (except sender)
           socket.to(`channel:${channelId}`).emit('user-stopped-typing', {
@@ -233,6 +263,36 @@ const socketHandler = (io, redisClient) => {
         }
       })
 
+      // Handle send direct message
+      socket.on('send-direct-message', async (messageData) => {
+        try {
+          const { recipientId, content, messageType, attachments, linkPreview, videoEmbed } = messageData
+
+          const directMessageService = require('../services/directMessageService')
+          const message = await directMessageService.sendDirectMessage({
+            recipientId,
+            content,
+            messageType: messageType || 'text',
+            attachments: attachments || [],
+            linkPreview: linkPreview || null,
+            videoEmbed: videoEmbed || null,
+          }, userId)
+
+          await message.populate('sender', 'username email avatar')
+
+          // Send to recipient
+          io.to(`user:${recipientId}`).emit('new-direct-message', { message })
+
+          // Also send back to sender for confirmation
+          socket.emit('direct-message-sent', { message })
+
+          logger.info(`Direct message sent from ${user.username} to ${recipientId}`)
+        } catch (error) {
+          logger.error('Error sending direct message:', error)
+          socket.emit('error', { message: 'Failed to send direct message' })
+        }
+      })
+
       // Handle disconnection
       socket.on('disconnect', async () => {
         try {
@@ -245,13 +305,32 @@ const socketHandler = (io, redisClient) => {
             // If no more socket IDs, mark offline
             if (user.socketIds.length === 0) {
               user.isOnline = false
-              await redisClient.sRem('online_users', userId)
-              io.emit('user:offline', { userId })
+              user.lastSeen = new Date()
+              
+              // Remove from Redis presence set (if Redis available)
+              if (redisClient) {
+                try {
+                  await redisClient.sRem('online_users', userId)
+                } catch (error) {
+                  logger.warn('[Redis] Failed to remove user from online set:', error.message)
+                }
+              }
+              
+              // Emit offline status to all users
+              io.emit('user:offline', { 
+                userId,
+                user: {
+                  _id: user._id,
+                  username: user.username,
+                  email: user.email,
+                  avatar: user.avatar,
+                },
+              })
             }
 
             await user.save()
 
-            logger.info(`User disconnected: ${user.username} (${userId})`)
+            logger.info(`User disconnected: ${user.username} (${userId}), socketIds remaining: ${user.socketIds.length}`)
           }
         } catch (error) {
           logger.error('Error handling disconnect:', error)

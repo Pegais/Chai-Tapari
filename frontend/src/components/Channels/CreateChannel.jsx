@@ -12,11 +12,19 @@ import { X } from "lucide-react"
 import { Button } from "../ui/button"
 import { Input } from "../ui/input"
 import { Card, CardHeader, CardTitle, CardContent } from "../ui/card"
+import { useCreateChannel } from "../../hooks/useChannels"
+import { useUsers } from "../../hooks/useUsers"
+import { useAuth } from "../../context/AuthContext"
 
 function CreateChannel({ onClose, onSuccess }) {
+  const { user } = useAuth()
+  const { data: users = [] } = useUsers()
   const [name, setName] = useState("")
   const [description, setDescription] = useState("")
-  const [loading, setLoading] = useState(false)
+  const [isPrivate, setIsPrivate] = useState(false)
+  const [selectedMembers, setSelectedMembers] = useState([])
+  const [error, setError] = useState("")
+  const createChannel = useCreateChannel()
 
   /**
    * Handle channel creation
@@ -26,31 +34,37 @@ function CreateChannel({ onClose, onSuccess }) {
    */
   const handleSubmit = async (e) => {
     e.preventDefault()
+    setError("")
     
     if (!name.trim()) {
+      setError("Channel name is required")
       return
     }
 
-    setLoading(true)
+    // Validate private channel has at least one member
+    if (isPrivate && selectedMembers.length === 0) {
+      setError("Private channels require at least one member (besides yourself)")
+      return
+    }
 
-    // TODO: Replace with actual API call
-    setTimeout(() => {
-      const newChannel = {
-        _id: `channel${Date.now()}`,
-        name: name.trim().toLowerCase(),
-        description: description.trim(),
-        members: [],
-        createdBy: "user1", // Current user
-        isPrivate: false,
-        createdAt: new Date(),
-        memberCount: 1,
-      }
+    try {
+      const newChannel = await createChannel.mutateAsync({
+        name: name.trim(),
+        description: description.trim() || undefined,
+        isPrivate: isPrivate,
+        members: isPrivate ? selectedMembers : undefined,
+      })
       
-      setLoading(false)
       onSuccess(newChannel)
       setName("")
       setDescription("")
-    }, 500)
+      setIsPrivate(false)
+      setSelectedMembers([])
+      onClose()
+    } catch (err) {
+      console.error("[CreateChannel] Error:", err)
+      setError(err.message || "Failed to create channel. Please try again.")
+    }
   }
 
   return (
@@ -92,7 +106,7 @@ function CreateChannel({ onClose, onSuccess }) {
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     required
-                    disabled={loading}
+                    disabled={createChannel.isPending}
                     className="h-12 bg-background/50 border-primary/20 focus:border-primary"
                     autoFocus
                   />
@@ -106,26 +120,81 @@ function CreateChannel({ onClose, onSuccess }) {
                     placeholder="What's this channel about?"
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
-                    disabled={loading}
+                    disabled={createChannel.isPending}
                     className="h-12 bg-background/50 border-primary/20 focus:border-primary"
                   />
                 </div>
+                <div className="space-y-2">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={isPrivate}
+                      onChange={(e) => setIsPrivate(e.target.checked)}
+                      disabled={createChannel.isPending}
+                      className="h-4 w-4 rounded border-primary/20 text-primary focus:ring-primary"
+                    />
+                    <span className="text-sm font-semibold">Private Channel</span>
+                  </label>
+                  {isPrivate && (
+                    <div className="mt-4 space-y-2">
+                      <label className="text-sm font-semibold">
+                        Select Members (at least 1 required)
+                      </label>
+                      <div className="max-h-48 overflow-y-auto border border-primary/20 rounded-md p-2 bg-background/50">
+                        {users.filter(u => u._id !== user?._id).map((userItem) => (
+                          <label 
+                            key={userItem._id} 
+                            className="flex items-center gap-2 p-2 hover:bg-accent/20 rounded cursor-pointer"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedMembers.includes(userItem._id)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedMembers([...selectedMembers, userItem._id])
+                                } else {
+                                  setSelectedMembers(selectedMembers.filter(id => id !== userItem._id))
+                                }
+                              }}
+                              disabled={createChannel.isPending}
+                              className="h-4 w-4 rounded border-primary/20 text-primary focus:ring-primary"
+                            />
+                            <span className="text-sm">{userItem.username}</span>
+                            {userItem.isOnline && (
+                              <span className="h-2 w-2 bg-primary rounded-full"></span>
+                            )}
+                          </label>
+                        ))}
+                      </div>
+                      {selectedMembers.length === 0 && (
+                        <p className="text-xs text-muted-foreground">
+                          Please select at least one member for private channels
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+                {error && (
+                  <div className="text-sm text-destructive bg-destructive/10 p-3 rounded-md border border-destructive/20">
+                    {error}
+                  </div>
+                )}
                 <div className="flex gap-3 justify-end pt-4">
                   <Button 
                     type="button" 
                     variant="outline" 
                     onClick={onClose} 
-                    disabled={loading}
+                    disabled={createChannel.isPending}
                     className="border-primary/20 hover:bg-primary/10"
                   >
                     Cancel
                   </Button>
                   <Button 
                     type="submit" 
-                    disabled={loading}
+                    disabled={createChannel.isPending}
                     className="bg-gradient-to-r from-primary to-accent hover:from-primary/90 hover:to-accent/90"
                   >
-                    {loading ? "Creating..." : "Create Channel"}
+                    {createChannel.isPending ? "Creating..." : "Create Channel"}
                   </Button>
                 </div>
               </form>

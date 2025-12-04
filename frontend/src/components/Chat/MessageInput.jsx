@@ -9,7 +9,11 @@
 import React, { useState, useRef, useCallback } from "react"
 import { Button } from "../ui/button"
 import { Paperclip, Send, X } from "lucide-react"
-import { mockCurrentUser } from "../../data/mockData"
+import { useAuth } from "../../context/AuthContext"
+import { useUploadMultipleFiles } from "../../hooks/useFileUpload"
+import { useCreateMessage, messageKeys } from "../../hooks/useMessages"
+import { getSocket } from "../../services/socket"
+import { useQueryClient } from "@tanstack/react-query"
 
 // Debounce utility function
 // Why: Prevent excessive API calls during rapid typing
@@ -28,29 +32,38 @@ function debounce(func, wait) {
 }
 
 function MessageInput({ channelId, onMessageSent }) {
+  const { user } = useAuth()
+  const queryClient = useQueryClient()
+  const uploadFiles = useUploadMultipleFiles()
+  const createMessage = useCreateMessage()
   const [message, setMessage] = useState("")
   const [selectedFiles, setSelectedFiles] = useState([])
   const [uploadProgress, setUploadProgress] = useState({})
+  const [error, setError] = useState("")
   const fileInputRef = useRef(null)
   const textareaRef = useRef(null)
+  const socket = getSocket()
 
   /**
    * Handle typing indicator
    * Why: Show other users when someone is typing
-   * How: Emits typing event, clears after delay
+   * How: Emits typing event via WebSocket, clears after delay
    * Impact: Better real-time communication feedback
    */
   const emitTyping = useCallback(
     debounce(() => {
-      // TODO: Emit typing-start event via WebSocket
-      console.log("User is typing...")
-      
-      // TODO: Emit typing-stop after delay
-      setTimeout(() => {
-        console.log("User stopped typing")
-      }, 2000)
+      if (socket && channelId) {
+        socket.emit('typing-start', channelId)
+        
+        // Stop typing after 2 seconds
+        setTimeout(() => {
+          if (socket) {
+            socket.emit('typing-stop', channelId)
+          }
+        }, 2000)
+      }
     }, 500),
-    [channelId]
+    [channelId, socket]
   )
 
   /**
@@ -104,42 +117,40 @@ function MessageInput({ channelId, onMessageSent }) {
   /**
    * Handle file upload
    * Why: Upload files to storage before sending message
-   * How: Creates FormData, uploads to API, tracks progress
+   * How: Uploads files to S3 via API, tracks progress
    * Impact: Files stored and accessible in messages
    */
   const uploadFile = async (file) => {
-    const formData = new FormData()
-    formData.append("file", file.file)
-    formData.append("channelId", channelId)
+    try {
+      setUploadProgress((prev) => ({
+        ...prev,
+        [file.id]: 50, // Show progress
+      }))
 
-    // TODO: Replace with actual API call
-    return new Promise((resolve) => {
-      // Simulate upload progress
-      let progress = 0
-      const interval = setInterval(() => {
-        progress += 10
-        setUploadProgress((prev) => ({
-          ...prev,
-          [file.id]: progress,
-        }))
-        if (progress >= 100) {
-          clearInterval(interval)
-          resolve({
-            fileUrl: file.preview || "https://via.placeholder.com/400",
-            fileName: file.name,
-            fileType: file.type,
-            fileSize: file.size,
-            thumbnailUrl: file.preview || null,
-          })
-        }
-      }, 100)
-    })
+      const files = await uploadFiles.mutateAsync([file.file])
+      const uploadedFile = files[0]
+
+      setUploadProgress((prev) => ({
+        ...prev,
+        [file.id]: 100,
+      }))
+
+      return uploadedFile
+    } catch (error) {
+      console.error("[MessageInput] File upload error:", error)
+      setUploadProgress((prev) => {
+        const newProgress = { ...prev }
+        delete newProgress[file.id]
+        return newProgress
+      })
+      throw error
+    }
   }
 
   /**
    * Handle message send
    * Why: Send message to channel
-   * How: Validates input, uploads files, creates message object, calls API
+   * How: Validates input, uploads files, creates message via API/WebSocket
    * Impact: Message appears in chat for all channel members
    */
   const handleSend = async () => {
@@ -147,34 +158,93 @@ function MessageInput({ channelId, onMessageSent }) {
       return
     }
 
-    // Upload files if any
-    let attachments = []
-    if (selectedFiles.length > 0) {
-      attachments = await Promise.all(selectedFiles.map(uploadFile))
-    }
+    setError("")
 
-    // Create message object
-    const newMessage = {
-      _id: `msg${Date.now()}`,
-      sender: mockCurrentUser._id,
-      channel: channelId,
-      content: message.trim(),
-      messageType: attachments.length > 0 ? "file" : "text",
-      attachments: attachments.length > 0 ? attachments : undefined,
-      timestamp: new Date(),
-      editedAt: null,
-      isDeleted: false,
-    }
+    try {
+      // Upload files if any
+      let attachments = []
+      if (selectedFiles.length > 0) {
+        attachments = await Promise.all(selectedFiles.map(uploadFile))
+      }
 
-    // TODO: Send message via WebSocket or API
-    onMessageSent(newMessage)
+      // Prepare message data
+      const messageData = {
+        content: message.trim(),
+        messageType: attachments.length > 0 ? "file" : "text",
+        attachments: attachments.length > 0 ? attachments : undefined,
+      }
 
-    // Reset form
-    setMessage("")
-    setSelectedFiles([])
-    setUploadProgress({})
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto"
+      // Create optimistic message for instant UI update
+      const optimisticMessage = {
+        _id: `temp-${Date.now()}`,
+        sender: {
+          _id: user._id,
+          username: user.username,
+          email: user.email,
+          avatar: user.avatar,
+        },
+        channel: channelId,
+        content: message.trim(),
+        messageType: attachments.length > 0 ? "file" : "text",
+        attachments: attachments.length > 0 ? attachments : undefined,
+        timestamp: new Date(),
+        createdAt: new Date(),
+        isOptimistic: true, // Flag to identify optimistic messages
+      }
+
+      // Optimistically update the cache immediately
+      // Messages are in chronological order (oldest first), so add new message at the end
+      queryClient.setQueryData(messageKeys.list(channelId), (oldData) => {
+        if (!oldData) return oldData
+        
+        // Get the last page (newest messages)
+        const lastPageIndex = oldData.pages.length - 1
+        const lastPage = oldData.pages[lastPageIndex]
+        
+        return {
+          ...oldData,
+          pages: oldData.pages.map((page, index) => {
+            if (index === lastPageIndex) {
+              // Add to end of last page (newest messages are at the end)
+              return {
+                ...page,
+                messages: [...page.messages, optimisticMessage],
+              }
+            }
+            return page
+          }),
+        }
+      })
+
+      // Send message via WebSocket (preferred for real-time)
+      if (socket) {
+        socket.emit('send-message', {
+          channelId,
+          ...messageData,
+        })
+      } else {
+        // Fallback to REST API
+        await createMessage.mutateAsync({
+          channelId,
+          messageData,
+        })
+      }
+
+      // Call callback if provided
+      if (onMessageSent) {
+        onMessageSent(optimisticMessage)
+      }
+
+      // Reset form
+      setMessage("")
+      setSelectedFiles([])
+      setUploadProgress({})
+      if (textareaRef.current) {
+        textareaRef.current.style.height = "auto"
+      }
+    } catch (error) {
+      console.error("[MessageInput] Send error:", error)
+      setError(error.message || "Failed to send message. Please try again.")
     }
   }
 

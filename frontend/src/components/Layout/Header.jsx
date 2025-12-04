@@ -7,22 +7,30 @@
  */
 
 import React, { useState, useRef, useEffect } from "react"
-import { useNavigate } from "react-router-dom"
+import { useNavigate, useParams } from "react-router-dom"
 import { motion, AnimatePresence } from "framer-motion"
 import { Hash, Plus, X, ChevronDown } from "lucide-react"
-import { mockChannels } from "../../data/mockData"
 import CardNav from "../ui/CardNav"
 import CreateChannel from "../Channels/CreateChannel"
 import { Button } from "../ui/button"
 import { cn } from "../../lib/utils"
+import { useChannels } from "../../hooks/useChannels"
 
 function Header() {
   const navigate = useNavigate()
-  const [channels] = useState(mockChannels)
-  const [selectedChannelId, setSelectedChannelId] = useState("channel1")
+  const { channelId } = useParams()
+  const { data: channels = [], isLoading } = useChannels()
+  const [selectedChannelId, setSelectedChannelId] = useState(channelId || null)
   const [showChannels, setShowChannels] = useState(false)
   const [showCreateModal, setShowCreateModal] = useState(false)
   const dropdownRef = useRef(null)
+
+  // Update selected channel when route changes
+  useEffect(() => {
+    if (channelId) {
+      setSelectedChannelId(channelId)
+    }
+  }, [channelId])
 
   /**
    * Handle channel selection
@@ -32,7 +40,7 @@ function Header() {
    */
   const handleChannelSelect = (channelId) => {
     setSelectedChannelId(channelId)
-    navigate(`/chat/${channelId}`)
+    navigate(`/chat/channel/${channelId}`)
     setShowChannels(false)
   }
 
@@ -164,13 +172,19 @@ function Header() {
 
                     {/* CardNav Content */}
                     <div className="flex-1 overflow-hidden">
-                      <CardNav
-                        items={channels}
-                        onItemSelect={handleChannelSelect}
-                        selectedItemId={selectedChannelId}
-                        renderItem={renderChannelItem}
-                        searchPlaceholder="Search channels..."
-                      />
+                      {isLoading ? (
+                        <div className="flex items-center justify-center p-8">
+                          <p className="text-muted-foreground text-sm">Loading channels...</p>
+                        </div>
+                      ) : (
+                        <CardNav
+                          items={channels}
+                          onItemSelect={handleChannelSelect}
+                          selectedItemId={selectedChannelId}
+                          renderItem={renderChannelItem}
+                          searchPlaceholder="Search channels..."
+                        />
+                      )}
                     </div>
                   </div>
                 </motion.div>

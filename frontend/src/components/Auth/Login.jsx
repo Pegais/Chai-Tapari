@@ -13,6 +13,7 @@ import { Button } from "../ui/button"
 import { Input } from "../ui/input"
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "../ui/card"
 import FloatingLinesBackground from "../ui/FloatingLinesBackground"
+import { useAuth } from "../../context/AuthContext"
 
 // Animation variants for page entrance
 // Why: Smooth, professional page transitions
@@ -44,6 +45,7 @@ const itemVariants = {
 
 function Login() {
   const navigate = useNavigate()
+  const { login } = useAuth()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
@@ -60,24 +62,20 @@ function Login() {
     setError("")
     setLoading(true)
 
-    // TODO: Replace with actual API call
-    // Simulate API call delay
-    setTimeout(() => {
-      // Mock authentication - in production, this would call the backend
-      if (email && password) {
-        // Store mock session
-        localStorage.setItem("user", JSON.stringify({
-          _id: "user1",
-          username: "alice",
-          email: email,
-        }))
-        setLoading(false)
+    try {
+      const result = await login(email, password)
+      
+      if (result.success) {
         navigate("/chat")
       } else {
-        setError("Please enter email and password")
-        setLoading(false)
+        setError(result.message || "Login failed. Please try again.")
       }
-    }, 500)
+    } catch (err) {
+      console.error("[Login] Error:", err)
+      setError(err.message || "An error occurred. Please try again.")
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (

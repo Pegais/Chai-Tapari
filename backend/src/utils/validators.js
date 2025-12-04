@@ -36,7 +36,24 @@ const validateRegister = [
     .isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
   body('avatar')
     .optional()
-    .isURL().withMessage('Avatar must be a valid URL'),
+    .custom((value) => {
+      // Accept either a valid URL or a valid avatar filename
+      if (!value) return true // Optional field
+      
+      // Check if it's a valid avatar filename (e.g., "avatar_1.jpg")
+      const validAvatarPattern = /^avatar_\d{1,2}\.jpg$/
+      if (validAvatarPattern.test(value)) {
+        return true
+      }
+      
+      // Check if it's a valid URL
+      try {
+        const url = new URL(value)
+        return url.protocol === 'http:' || url.protocol === 'https:'
+      } catch {
+        return false
+      }
+    }).withMessage('Avatar must be a valid avatar filename (e.g., avatar_1.jpg) or a valid URL'),
 ]
 
 /**

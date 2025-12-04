@@ -31,6 +31,8 @@ const channelRoutes = require('./routes/channelRoutes')
 const messageRoutes = require('./routes/messageRoutes')
 const userRoutes = require('./routes/userRoutes')
 const fileUploadRoutes = require('./routes/fileUploadRoutes')
+const avatarRoutes = require('./routes/avatarRoutes')
+const directMessageRoutes = require('./routes/directMessageRoutes')
 
 /**
  * Create Express application
@@ -46,7 +48,10 @@ const app = express()
  * How: Sets security headers using Helmet
  * Impact: Reduces risk of XSS, clickjacking, and other attacks
  */
-app.use(helmet())
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" }, // Allow images to be loaded cross-origin
+  crossOriginEmbedderPolicy: false, // Allow embedding resources
+}))
 
 /**
  * CORS configuration
@@ -59,6 +64,7 @@ app.use(cors({
   credentials: true,
   methods: ['GET', 'POST', 'PATCH', 'DELETE', 'PUT'],
   allowedHeaders: ['Content-Type', 'Authorization'],
+  exposedHeaders: ['Content-Type', 'Content-Length'],
 }))
 
 /**
@@ -113,10 +119,12 @@ app.get('/health', (req, res) => {
  * Impact: Protects API from excessive requests
  */
 app.use('/api/auth', authRoutes)
+app.use('/api/avatars', avatarRoutes) // Avatar routes (no rate limit for static assets)
 app.use('/api/channels', apiLimiter, channelRoutes)
 app.use('/api', apiLimiter, messageRoutes)
 app.use('/api/users', apiLimiter, userRoutes)
 app.use('/api/upload', apiLimiter, fileUploadRoutes)
+app.use('/api/direct-messages', apiLimiter, directMessageRoutes)
 
 /**
  * 404 handler

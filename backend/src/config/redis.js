@@ -26,32 +26,60 @@ const createRedisClient = () => {
     return redisClient
   }
 
+  // Build Redis configuration from environment variables
+  // Supports both local Redis and Redis Cloud (Redis Labs)
   const config = {
-    host: process.env.REDIS_HOST || 'localhost',
-    port: process.env.REDIS_PORT || 6379,
-    password: process.env.REDIS_PASSWORD || undefined,
-    retryStrategy: (times) => {
-      const delay = Math.min(times * 50, 2000)
-      return delay
+    socket: {
+      host: process.env.REDIS_HOST || 'localhost',
+      port: parseInt(process.env.REDIS_PORT) || 6379,
+      reconnectStrategy: (retries) => {
+        if (retries > 10) {
+          console.warn('[Redis] Max reconnection attempts reached. Redis features will be disabled.')
+          return false // Stop reconnecting after 10 attempts
+        }
+        const delay = Math.min(retries * 50, 2000)
+        return delay
+      },
+      connectTimeout: 5000, // 5 second timeout
     },
   }
 
+  // Add username if provided (for Redis Cloud/Redis Labs)
+  if (process.env.REDIS_USERNAME) {
+    config.username = process.env.REDIS_USERNAME
+  }
+
+  // Add password if provided
+  if (process.env.REDIS_PASSWORD) {
+    config.password = process.env.REDIS_PASSWORD
+  }
+
+  // Create Redis client using createClient (same as user's example)
   redisClient = redis.createClient(config)
 
   redisClient.on('error', (err) => {
-    console.error('Redis Client Error:', err)
+    // Log error but don't crash the application
+    // Only log if it's not a connection refused error (those are expected if Redis isn't running)
+    if (err.code !== 'ECONNREFUSED') {
+      console.warn('[Redis] Connection error:', err.message)
+      console.warn('[Redis] Some features (presence tracking, session storage) may be unavailable.')
+    }
   })
 
   redisClient.on('connect', () => {
-    console.log('Redis Client Connected')
+    console.log('[Redis] Client connecting...')
   })
 
   redisClient.on('ready', () => {
-    console.log('Redis Client Ready')
+    console.log('[Redis] Client ready and connected')
   })
 
   redisClient.on('end', () => {
-    console.log('Redis Client Connection Ended')
+    console.log('[Redis] Client connection ended')
+  })
+
+  redisClient.on('reconnecting', () => {
+    console.log('[Redis] Client reconnecting...')
   })
 
   return redisClient

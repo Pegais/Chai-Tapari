@@ -10,11 +10,15 @@ import React from "react"
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { AnimatePresence } from "framer-motion"
+import { AuthProvider, useAuth } from "./context/AuthContext"
+import { SocketProvider } from "./context/SocketContext"
 import Home from "./components/Home/Home"
 import Login from "./components/Auth/Login"
 import Signup from "./components/Auth/Signup"
 import MainLayout from "./components/Layout/MainLayout"
 import ChatWindow from "./components/Chat/ChatWindow"
+import DirectMessageWindow from "./components/DirectMessages/DirectMessageWindow"
+import { useChannels } from "./hooks/useChannels"
 
 // Create React Query client for data fetching and caching
 // Why: Centralized data management with caching and refetching
@@ -37,44 +41,89 @@ const queryClient = new QueryClient({
  * Impact: Secures application routes from unauthorized access
  */
 function ProtectedRoute({ children }) {
-  const user = localStorage.getItem("user")
+  const { isAuthenticated, loading } = useAuth()
   
-  if (!user) {
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-muted-foreground">Loading...</div>
+      </div>
+    )
+  }
+  
+  if (!isAuthenticated) {
     return <Navigate to="/login" replace />
   }
   
   return children
 }
 
+/**
+ * Navigate to first available channel
+ * Why: Redirect to a valid channel on initial load
+ * How: Gets channels list and navigates to first one
+ * Impact: Better UX - user lands on a valid channel
+ */
+function NavigateToFirstChannel() {
+  const { data: channels = [] } = useChannels()
+  
+  if (channels.length > 0) {
+    const firstChannel = channels[0]
+    return <Navigate to={`/chat/channel/${firstChannel._id}`} replace />
+  }
+  
+  return <Navigate to="/chat/channel/general" replace />
+}
+
+/**
+ * Navigate to channel (handles old route format)
+ * Why: Support old route format for backward compatibility
+ * How: Redirects old format to new format
+ * Impact: Prevents broken links
+ */
+function NavigateToChannel() {
+  const { useParams } = require("react-router-dom")
+  const { id } = useParams()
+  return <Navigate to={`/chat/channel/${id}`} replace />
+}
+
 function App() {
   return (
+          <BrowserRouter>
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <AnimatePresence mode="wait">
-          <Routes>
-            {/* Home Page - Public Route */}
-            <Route path="/" element={<Home />} />
-            
-            {/* Public Routes */}
-            <Route path="/login" element={<Login />} />
-            <Route path="/signup" element={<Signup />} />
-            
-            {/* Protected Routes */}
-            <Route
-              path="/chat"
-              element={
-                <ProtectedRoute>
-                  <MainLayout />
-                </ProtectedRoute>
-              }
-            >
-              <Route index element={<Navigate to="/chat/channel1" replace />} />
-              <Route path=":channelId" element={<ChatWindow />} />
-            </Route>
-          </Routes>
-        </AnimatePresence>
-      </BrowserRouter>
+      <AuthProvider>
+        <SocketProvider>
+            <AnimatePresence mode="wait">
+              <Routes>
+                {/* Home Page - Public Route */}
+                <Route path="/" element={<Home />} />
+                
+                {/* Public Routes */}
+                <Route path="/login" element={<Login />} />
+                <Route path="/signup" element={<Signup />} />
+                
+                {/* Protected Routes */}
+                <Route
+                  path="/chat"
+                  element={
+                    <ProtectedRoute>
+                      <MainLayout />
+                    </ProtectedRoute>
+                  }
+                >
+                  <Route index element={<NavigateToFirstChannel />} />
+                  <Route path="channel/:channelId" element={<ChatWindow />} />
+                  <Route path="dm/:conversationId" element={<DirectMessageWindow />} />
+                  <Route path="dm/new/:userId" element={<DirectMessageWindow />} />
+                  {/* Fallback route for old format - redirect to new format */}
+                  <Route path=":id" element={<NavigateToChannel />} />
+                </Route>
+              </Routes>
+            </AnimatePresence>
+        </SocketProvider>
+      </AuthProvider>
     </QueryClientProvider>
+          </BrowserRouter>
   )
 }
 

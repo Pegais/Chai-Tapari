@@ -15,6 +15,8 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "../ui
 import Stepper from "../ui/Stepper"
 import AvatarSelector from "./AvatarSelector"
 import FloatingLinesBackground from "../ui/FloatingLinesBackground"
+import { signup } from "../../services/api"
+import { useAuth } from "../../context/AuthContext"
 
 // Stepper steps configuration
 // Why: Define the registration flow steps
@@ -155,7 +157,9 @@ function Signup() {
    * How: Validates all steps, calls signup API
    * Impact: New user account created in system
    */
-  const handleSubmit = async () => {
+  const handleSubmit = async (e) => {
+    if (e) e.preventDefault()
+    
     const validation = validateStep(5)
     if (!validation.isValid) {
       setErrors(validation.errors)
@@ -163,19 +167,38 @@ function Signup() {
     }
 
     setLoading(true)
+    setErrors({})
 
-    // TODO: Replace with actual API call
-    setTimeout(() => {
-      // Mock signup - in production, this would call the backend
-      localStorage.setItem("user", JSON.stringify({
-        _id: `user${Date.now()}`,
+    try {
+      const userData = {
         username: formData.username,
         email: formData.email,
-        avatar: formData.avatar?.url || "",
-      }))
+        password: formData.password,
+        // Send just the filename (e.g., "avatar_1.jpg") - backend will construct full URL
+        avatar: formData.avatar?.filename || null,
+      }
+
+      const response = await signup(userData)
+
+      if (response.success) {
+        // Store token and user
+        const { user, token } = response.data
+        localStorage.setItem("token", token)
+        localStorage.setItem("user", JSON.stringify(user))
+        
+        navigate("/chat")
+      } else {
+        setErrors({ submit: response.message || "Signup failed. Please try again." })
+      }
+    } catch (error) {
+      console.error("[Signup] Error:", error)
+      setErrors({ 
+        submit: error.message || "An error occurred. Please try again.",
+        ...(error.errors && { fields: error.errors })
+      })
+    } finally {
       setLoading(false)
-      navigate("/chat")
-    }, 500)
+    }
   }
 
   /**

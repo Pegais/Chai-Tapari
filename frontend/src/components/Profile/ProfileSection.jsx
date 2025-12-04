@@ -7,23 +7,41 @@
  */
 
 import React, { useState, useRef, useEffect } from "react"
-import { useNavigate } from "react-router-dom"
+import { useNavigate, useParams } from "react-router-dom"
 import { motion, AnimatePresence } from "framer-motion"
-import { Star, StarOff, Hash, ChevronDown, Plus } from "lucide-react"
+import { Star, StarOff, Hash, ChevronDown, Plus, LogOut } from "lucide-react"
 import { Avatar, AvatarImage, AvatarFallback } from "../ui/avatar"
-import { mockCurrentUser, mockChannels } from "../../data/mockData"
 import CardNav from "../ui/CardNav"
 import CreateChannel from "../Channels/CreateChannel"
 import { Button } from "../ui/button"
 import { cn } from "../../lib/utils"
+import { useAuth } from "../../context/AuthContext"
+import { useChannels } from "../../hooks/useChannels"
 
 function ProfileSection() {
   const navigate = useNavigate()
-  const [starredChannels, setStarredChannels] = useState(["channel1", "channel3"])
+  const { channelId } = useParams()
+  const { user, logout } = useAuth()
+  const { data: channels = [] } = useChannels()
+  const [starredChannels, setStarredChannels] = useState([])
   const [showChannels, setShowChannels] = useState(false)
-  const [selectedChannelId, setSelectedChannelId] = useState("channel1")
+  const [selectedChannelId, setSelectedChannelId] = useState(channelId || null)
   const [showCreateModal, setShowCreateModal] = useState(false)
   const channelsRef = useRef(null)
+
+  // Update selected channel when route changes
+  useEffect(() => {
+    if (channelId) {
+      setSelectedChannelId(channelId)
+    }
+  }, [channelId])
+
+  // Load starred channels from user data
+  useEffect(() => {
+    if (user?.starredChannels) {
+      setStarredChannels(user.starredChannels.map(ch => ch._id || ch))
+    }
+  }, [user])
 
   /**
    * Toggle channel star status
@@ -47,7 +65,7 @@ function ProfileSection() {
    */
   const handleChannelSelect = (channelId) => {
     setSelectedChannelId(channelId)
-    navigate(`/chat/${channelId}`)
+    navigate(`/chat/channel/${channelId}`)
   }
 
   /**
@@ -108,12 +126,9 @@ function ProfileSection() {
   }
 
   // Get starred channels
-  const starredChannelsList = mockChannels.filter((channel) =>
+  const starredChannelsList = channels.filter((channel) =>
     starredChannels.includes(channel._id)
   )
-
-  // Get current user data
-  const user = JSON.parse(localStorage.getItem("user")) || mockCurrentUser
 
   return (
     <div className="h-full flex flex-col bg-card/95 backdrop-blur-sm border-r border-primary/20 overflow-hidden">
@@ -242,6 +257,18 @@ function ProfileSection() {
         </div>
       </div>
 
+      {/* Logout Button - Fixed at bottom */}
+      <div className="border-t border-primary/20 flex-shrink-0 p-4">
+        <Button
+          onClick={logout}
+          variant="outline"
+          className="w-full border-destructive/20 text-destructive hover:bg-destructive/10 hover:border-destructive/40"
+        >
+          <LogOut className="h-4 w-4 mr-2" />
+          <span>Logout</span>
+        </Button>
+      </div>
+
       {/* Channels Section - Fixed at bottom left */}
       <div className="border-t border-primary/20 flex-shrink-0" ref={channelsRef}>
         <button
@@ -303,7 +330,7 @@ function ProfileSection() {
                   {/* CardNav Content */}
                   <div className="flex-1 overflow-hidden">
                     <CardNav
-                      items={mockChannels}
+                      items={channels}
                       onItemSelect={handleChannelSelect}
                       selectedItemId={selectedChannelId}
                       renderItem={renderChannelItem}

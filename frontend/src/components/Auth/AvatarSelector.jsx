@@ -11,33 +11,36 @@ import { motion, AnimatePresence } from "framer-motion"
 import { Check } from "lucide-react"
 import { cn } from "../../lib/utils"
 
-// Anime character avatars - Using local avatar images
+// Get API base URL from environment
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api'
+
+// Anime character avatars - Using backend avatar images
 // Why: Provide diverse character options for user selection
-// How: Uses local avatar images from public/avatars folder
+// How: Uses backend avatar API to serve images
 // Impact: Users can express their personality through avatar choice
 // Note: 18 avatars total - 12 male (avatar_1 to avatar_12), 6 female (avatar_13 to avatar_18)
 const animeAvatars = {
   male: [
-    { id: "avatar_1", name: "Hero", url: "/avatars/avatar_1.jpg" },
-    { id: "avatar_2", name: "Warrior", url: "/avatars/avatar_2.jpg" },
-    { id: "avatar_3", name: "Ninja", url: "/avatars/avatar_3.jpg" },
-    { id: "avatar_4", name: "Samurai", url: "/avatars/avatar_4.jpg" },
-    { id: "avatar_5", name: "Mage", url: "/avatars/avatar_5.jpg" },
-    { id: "avatar_6", name: "Knight", url: "/avatars/avatar_6.jpg" },
-    { id: "avatar_7", name: "Ranger", url: "/avatars/avatar_7.jpg" },
-    { id: "avatar_8", name: "Rogue", url: "/avatars/avatar_8.jpg" },
-    { id: "avatar_9", name: "Paladin", url: "/avatars/avatar_9.jpg" },
-    { id: "avatar_10", name: "Bard", url: "/avatars/avatar_10.jpg" },
-    { id: "avatar_11", name: "Monk", url: "/avatars/avatar_11.jpg" },
-    { id: "avatar_12", name: "Druid", url: "/avatars/avatar_12.jpg" },
+    { id: "avatar_1", name: "Hero", filename: "avatar_1.jpg", url: `${API_BASE_URL}/avatars/avatar_1.jpg` },
+    { id: "avatar_2", name: "Warrior", filename: "avatar_2.jpg", url: `${API_BASE_URL}/avatars/avatar_2.jpg` },
+    { id: "avatar_3", name: "Ninja", filename: "avatar_3.jpg", url: `${API_BASE_URL}/avatars/avatar_3.jpg` },
+    { id: "avatar_4", name: "Samurai", filename: "avatar_4.jpg", url: `${API_BASE_URL}/avatars/avatar_4.jpg` },
+    { id: "avatar_5", name: "Mage", filename: "avatar_5.jpg", url: `${API_BASE_URL}/avatars/avatar_5.jpg` },
+    { id: "avatar_6", name: "Knight", filename: "avatar_6.jpg", url: `${API_BASE_URL}/avatars/avatar_6.jpg` },
+    { id: "avatar_7", name: "Ranger", filename: "avatar_7.jpg", url: `${API_BASE_URL}/avatars/avatar_7.jpg` },
+    { id: "avatar_8", name: "Rogue", filename: "avatar_8.jpg", url: `${API_BASE_URL}/avatars/avatar_8.jpg` },
+    { id: "avatar_9", name: "Paladin", filename: "avatar_9.jpg", url: `${API_BASE_URL}/avatars/avatar_9.jpg` },
+    { id: "avatar_10", name: "Bard", filename: "avatar_10.jpg", url: `${API_BASE_URL}/avatars/avatar_10.jpg` },
+    { id: "avatar_11", name: "Monk", filename: "avatar_11.jpg", url: `${API_BASE_URL}/avatars/avatar_11.jpg` },
+    { id: "avatar_12", name: "Druid", filename: "avatar_12.jpg", url: `${API_BASE_URL}/avatars/avatar_12.jpg` },
   ],
   female: [
-    { id: "avatar_13", name: "Princess", url: "/avatars/avatar_13.jpg" },
-    { id: "avatar_14", name: "Valkyrie", url: "/avatars/avatar_14.jpg" },
-    { id: "avatar_15", name: "Enchantress", url: "/avatars/avatar_15.jpg" },
-    { id: "avatar_16", name: "Archer", url: "/avatars/avatar_16.jpg" },
-    { id: "avatar_17", name: "Priestess", url: "/avatars/avatar_17.jpg" },
-    { id: "avatar_18", name: "Ranger", url: "/avatars/avatar_18.jpg" },
+    { id: "avatar_13", name: "Princess", filename: "avatar_13.jpg", url: `${API_BASE_URL}/avatars/avatar_13.jpg` },
+    { id: "avatar_14", name: "Valkyrie", filename: "avatar_14.jpg", url: `${API_BASE_URL}/avatars/avatar_14.jpg` },
+    { id: "avatar_15", name: "Enchantress", filename: "avatar_15.jpg", url: `${API_BASE_URL}/avatars/avatar_15.jpg` },
+    { id: "avatar_16", name: "Archer", filename: "avatar_16.jpg", url: `${API_BASE_URL}/avatars/avatar_16.jpg` },
+    { id: "avatar_17", name: "Priestess", filename: "avatar_17.jpg", url: `${API_BASE_URL}/avatars/avatar_17.jpg` },
+    { id: "avatar_18", name: "Ranger", filename: "avatar_18.jpg", url: `${API_BASE_URL}/avatars/avatar_18.jpg` },
   ],
 }
 
