@@ -1,0 +1,101 @@
+/**
+ * Main Server Entry Point
+ * 
+ * Why: Start HTTP server and initialize application
+ * How: Connects to database, starts Express server, sets up WebSocket
+ * Impact: Application is ready to handle requests
+ * 
+ * Startup Flow:
+ * 1. Load environment variables
+ * 2. Connect to MongoDB
+ * 3. Connect to Redis
+ * 4. Start HTTP server
+ * 5. Set up WebSocket server
+ * 6. Handle graceful shutdown
+ */
+
+require('dotenv').config()
+const http = require('http')
+const { Server } = require('socket.io')
+const connectDatabase = require('./config/database')
+const { createRedisClient } = require('./config/redis')
+const app = require('./app')
+const socketHandler = require('./socket/socketHandler')
+const logger = require('./utils/logger')
+
+/**
+ * Get port from environment or use default
+ * Why: Allow port configuration via environment variable
+ * How: Reads PORT from environment or defaults to 5000
+ * Impact: Flexible port configuration for different environments
+ */
+const PORT = process.env.PORT || 5000
+
+/**
+ * Initialize application
+ * Why: Set up database connections and start server
+ * How: Connects to MongoDB and Redis, creates HTTP server, starts listening
+ * Impact: Application is ready to handle requests
+ */
+const startServer = async () => {
+  try {
+    // Connect to MongoDB
+    await connectDatabase()
+
+    // Connect to Redis
+    const redisClient = createRedisClient()
+    await redisClient.connect()
+
+    // Create HTTP server
+    const server = http.createServer(app)
+
+    // Set up Socket.IO
+    const io = new Server(server, {
+      cors: {
+        origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+        methods: ['GET', 'POST'],
+        credentials: true,
+      },
+    })
+
+    // Initialize socket handler
+    socketHandler(io, redisClient)
+
+    // Start server
+    server.listen(PORT, () => {
+      logger.info(`Server running on port ${PORT}`)
+      logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`)
+    })
+
+    // Graceful shutdown
+    const gracefulShutdown = async (signal) => {
+      logger.info(`${signal} received, shutting down gracefully`)
+
+      server.close(() => {
+        logger.info('HTTP server closed')
+
+        redisClient.quit(() => {
+          logger.info('Redis connection closed')
+          process.exit(0)
+        })
+      })
+
+      // Force close after 10 seconds
+      setTimeout(() => {
+        logger.error('Forced shutdown after timeout')
+        process.exit(1)
+      }, 10000)
+    }
+
+    process.on('SIGTERM', () => gracefulShutdown('SIGTERM'))
+    process.on('SIGINT', () => gracefulShutdown('SIGINT'))
+
+  } catch (error) {
+    logger.error('Failed to start server:', error)
+    process.exit(1)
+  }
+}
+
+// Start the server
+startServer()
+
