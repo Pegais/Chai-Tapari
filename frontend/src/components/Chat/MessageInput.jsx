@@ -315,8 +315,9 @@ function MessageInput({ channelId, onMessageSent }) {
           variant="ghost"
           onClick={() => fileInputRef.current?.click()}
           title="Attach file"
+          className="h-10 w-10 sm:h-11 sm:w-11 flex-shrink-0"
         >
-          <Paperclip className="h-5 w-5" />
+          <Paperclip className="h-4 w-4 sm:h-5 sm:w-5" />
         </Button>
         <input
           ref={fileInputRef}
@@ -333,15 +334,17 @@ function MessageInput({ channelId, onMessageSent }) {
           onKeyDown={handleKeyDown}
           onInput={handleTextareaResize}
           placeholder="Type a message..."
-          className="flex-1 min-h-[44px] max-h-[120px] resize-none rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex-1 min-h-[40px] sm:min-h-[44px] max-h-[100px] sm:max-h-[120px] resize-none rounded-md border border-input bg-background px-2 sm:px-3 py-2 text-sm sm:text-base ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
           rows={1}
         />
         <Button
           onClick={handleSend}
           disabled={!message.trim() && selectedFiles.length === 0}
           title="Send message"
+          size="icon"
+          className="h-10 w-10 sm:h-11 sm:w-11 flex-shrink-0"
         >
-          <Send className="h-4 w-4" />
+          <Send className="h-4 w-4 sm:h-5 sm:w-5" />
         </Button>
       </div>
     </div>

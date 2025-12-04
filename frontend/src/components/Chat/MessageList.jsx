@@ -189,7 +189,7 @@ function MessageList({ messages = [], channelId, conversationId }) {
 
   return (
     <div className="h-full overflow-y-auto overflow-x-hidden" ref={scrollRef}>
-      <div className="p-4 space-y-4 max-w-full">
+      <div className="p-2 sm:p-4 space-y-2 sm:space-y-4 max-w-full">
         <AnimatePresence>
           {groupedMessages.map((group, index) => {
             if (group.type === "date-separator") {

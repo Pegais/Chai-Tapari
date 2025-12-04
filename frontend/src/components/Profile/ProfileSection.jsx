@@ -134,30 +134,30 @@ function ProfileSection() {
     <div className="h-full flex flex-col bg-card/95 backdrop-blur-sm border-r border-primary/20 overflow-hidden">
       {/* Profile Header - Fixed */}
       <motion.div
-        className="p-6 border-b border-primary/20 flex-shrink-0"
+        className="p-4 md:p-6 border-b border-primary/20 flex-shrink-0"
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1 }}
       >
         {/* Avatar */}
-        <div className="flex flex-col items-center mb-4">
+        <div className="flex flex-col items-center mb-3 md:mb-4">
           <motion.div
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             className="relative"
           >
-            <Avatar className="h-32 w-32 ring-4 ring-primary/30 shadow-lg shadow-primary/20">
+            <Avatar className="h-20 w-20 md:h-32 md:w-32 ring-2 md:ring-4 ring-primary/30 shadow-lg shadow-primary/20">
               <AvatarImage 
                 src={user.avatar || "/avatars/avatar_1.jpg"} 
                 alt={user.username} 
               />
-              <AvatarFallback className="bg-primary/20 text-primary text-4xl">
+              <AvatarFallback className="bg-primary/20 text-primary text-2xl md:text-4xl">
                 {user.username?.charAt(0).toUpperCase() || "U"}
               </AvatarFallback>
             </Avatar>
             {/* Online indicator */}
             <motion.div
-              className="absolute bottom-2 right-2 h-6 w-6 bg-primary border-4 border-background rounded-full"
+              className="absolute bottom-1 right-1 md:bottom-2 md:right-2 h-4 w-4 md:h-6 md:w-6 bg-primary border-2 md:border-4 border-background rounded-full"
               animate={{ scale: [1, 1.2, 1] }}
               transition={{ duration: 2, repeat: Infinity }}
             />
@@ -166,7 +166,7 @@ function ProfileSection() {
 
         {/* Username */}
         <motion.h2
-          className="text-2xl font-bold text-center mb-2 bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent"
+          className="text-lg md:text-2xl font-bold text-center mb-1 md:mb-2 bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.2 }}
@@ -176,7 +176,7 @@ function ProfileSection() {
 
         {/* Email */}
         <motion.p
-          className="text-sm text-muted-foreground text-center"
+          className="text-xs md:text-sm text-muted-foreground text-center truncate w-full px-2"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.3 }}

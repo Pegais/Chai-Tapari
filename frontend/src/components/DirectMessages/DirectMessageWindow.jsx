@@ -379,7 +379,7 @@ function DirectMessageWindow() {
 
       {/* Message Input - Fixed at bottom */}
       <motion.div
-        className="border-t border-primary/20 p-4 bg-card/95 backdrop-blur-sm flex-shrink-0"
+        className="border-t border-primary/20 p-2 sm:p-3 md:p-4 bg-card/95 backdrop-blur-sm flex-shrink-0"
         initial={{ y: 10, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ delay: 0.2 }}
@@ -446,36 +446,36 @@ function DirectMessageWindow() {
               className="hidden"
               onChange={handleFileSelect}
             />
-            <Button
-              size="icon"
-              variant="ghost"
-              onClick={() => fileInputRef.current?.click()}
-              className="flex-shrink-0 h-10 w-10 text-muted-foreground hover:bg-primary/10"
-              title="Attach files"
-            >
-              <Paperclip className="h-5 w-5" />
-            </Button>
-            <textarea
-              ref={textareaRef}
-              value={messageContent}
-              onChange={(e) => {
-                setMessageContent(e.target.value)
-                autoResizeTextarea()
-              }}
-              onKeyDown={handleKeyDown}
-              rows={1}
-              placeholder={`Message ${recipient?.username || "user"}`}
-              className="flex-1 resize-none overflow-hidden bg-background/50 border border-primary/20 rounded-lg py-2 px-4 text-base focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-transparent transition-all max-h-32"
-              disabled={sendDirectMessageMutation.isPending || uploadFilesMutation.isPending}
-            />
-            <Button
-              size="icon"
-              onClick={handleSendMessage}
-              className="flex-shrink-0 h-10 w-10 bg-gradient-to-r from-primary to-accent hover:from-primary/90 hover:to-accent/90"
-              disabled={(!messageContent.trim() && selectedFiles.length === 0) || sendDirectMessageMutation.isPending || uploadFilesMutation.isPending}
-            >
-              <Send className="h-5 w-5" />
-            </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex-shrink-0 h-9 w-9 sm:h-10 sm:w-10 text-muted-foreground hover:bg-primary/10"
+                  title="Attach files"
+                >
+                  <Paperclip className="h-4 w-4 sm:h-5 sm:w-5" />
+                </Button>
+                <textarea
+                  ref={textareaRef}
+                  value={messageContent}
+                  onChange={(e) => {
+                    setMessageContent(e.target.value)
+                    autoResizeTextarea()
+                  }}
+                  onKeyDown={handleKeyDown}
+                  rows={1}
+                  placeholder={`Message ${recipient?.username || "user"}`}
+                  className="flex-1 resize-none overflow-hidden bg-background/50 border border-primary/20 rounded-lg py-2 px-3 sm:px-4 text-sm sm:text-base focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-transparent transition-all max-h-28 sm:max-h-32"
+                  disabled={sendDirectMessageMutation.isPending || uploadFilesMutation.isPending}
+                />
+                <Button
+                  size="icon"
+                  onClick={handleSendMessage}
+                  className="flex-shrink-0 h-9 w-9 sm:h-10 sm:w-10 bg-gradient-to-r from-primary to-accent hover:from-primary/90 hover:to-accent/90"
+                  disabled={(!messageContent.trim() && selectedFiles.length === 0) || sendDirectMessageMutation.isPending || uploadFilesMutation.isPending}
+                >
+                  <Send className="h-4 w-4 sm:h-5 sm:w-5" />
+                </Button>
           </div>
         </div>
       </motion.div>

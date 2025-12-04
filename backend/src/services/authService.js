@@ -174,23 +174,31 @@ const getUserById = async (userId) => {
 /**
  * Logout user
  * Why: Set user offline and clear socket connections
- * How: Updates user to offline, clears socket IDs
+ * How: Updates user to offline, clears socket IDs using atomic update
  * Impact: User marked as offline in database on logout
  */
 const logoutUser = async (userId) => {
-  const user = await User.findById(userId)
+  // Use findByIdAndUpdate with atomic operations to avoid version conflicts
+  const user = await User.findByIdAndUpdate(
+    userId,
+    {
+      $set: {
+        isOnline: false,
+        socketIds: [],
+        lastSeen: new Date(),
+      },
+    },
+    {
+      new: true, // Return updated document
+      runValidators: true, // Run schema validators
+    }
+  )
 
   if (!user) {
     const error = new Error('User not found')
     error.statusCode = 404
     throw error
   }
-
-  // Set user offline and clear all socket IDs
-  user.isOnline = false
-  user.socketIds = []
-  user.lastSeen = new Date()
-  await user.save()
 
   return {
     _id: user._id,

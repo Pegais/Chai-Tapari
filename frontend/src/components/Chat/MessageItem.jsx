@@ -111,7 +111,7 @@ function MessageItem({ message, showAvatar, showTimestamp }) {
 
   return (
     <motion.div
-      className={`flex gap-3 px-4 py-2 hover:bg-accent/20 group ${isOwnMessage ? "flex-row-reverse" : ""}`}
+      className={`flex gap-2 sm:gap-3 px-2 sm:px-4 py-2 hover:bg-accent/20 group ${isOwnMessage ? "flex-row-reverse" : ""}`}
       whileHover={{ scale: 1.01 }}
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
@@ -119,18 +119,18 @@ function MessageItem({ message, showAvatar, showTimestamp }) {
     >
       {/* Avatar - shown only for first message in group */}
       {showAvatar && (
-        <Avatar className="h-8 w-8 flex-shrink-0">
+        <Avatar className="h-7 w-7 sm:h-8 sm:w-8 flex-shrink-0">
           <AvatarImage src={sender?.avatar || null} alt={sender?.username || 'User'} />
-          <AvatarFallback>{(sender?.username || 'U').charAt(0).toUpperCase()}</AvatarFallback>
+          <AvatarFallback className="text-xs sm:text-sm">{(sender?.username || 'U').charAt(0).toUpperCase()}</AvatarFallback>
         </Avatar>
       )}
       
       {/* Message Content */}
-      <div className={`flex-1 min-w-0 ${!showAvatar ? "ml-11" : ""} ${isOwnMessage ? "items-end" : ""}`}>
+      <div className={`flex-1 min-w-0 ${!showAvatar ? "ml-9 sm:ml-11" : ""} ${isOwnMessage ? "items-end" : ""}`}>
         {/* Sender Name and Timestamp - shown only for first message */}
         {showAvatar && (
           <div className={`flex items-baseline gap-2 mb-1 ${isOwnMessage ? "flex-row-reverse" : ""}`}>
-            <span className="font-semibold text-sm">{sender?.username || 'Unknown User'}</span>
+            <span className="font-semibold text-xs sm:text-sm">{sender?.username || 'Unknown User'}</span>
             {showTimestamp && (
               <span className="text-xs text-muted-foreground">
                 {format(new Date(message.timestamp), "h:mm a")}
@@ -142,7 +142,7 @@ function MessageItem({ message, showAvatar, showTimestamp }) {
         {/* Message Bubble */}
         <div className={`flex items-start gap-2 ${isOwnMessage ? "flex-row-reverse" : ""}`}>
           <motion.div
-            className={`rounded-lg px-4 py-2 max-w-[70%] ${
+            className={`rounded-lg px-3 sm:px-4 py-2 max-w-[85%] sm:max-w-[70%] ${
               isOwnMessage
                 ? "bg-gradient-to-r from-primary to-accent text-primary-foreground shadow-lg shadow-primary/20"
                 : "bg-muted/80 backdrop-blur-sm text-foreground border border-primary/10"
@@ -172,7 +172,7 @@ function MessageItem({ message, showAvatar, showTimestamp }) {
               <>
                 {/* Text Content */}
                 {message.content && (
-                  <p className="whitespace-pre-wrap break-words">{message.content}</p>
+                  <p className="whitespace-pre-wrap break-words text-sm sm:text-base">{message.content}</p>
                 )}
 
                 {/* Link Preview */}
@@ -229,20 +229,20 @@ function MessageItem({ message, showAvatar, showTimestamp }) {
               <Button
                 size="icon"
                 variant="ghost"
-                className="h-6 w-6"
+                className="h-7 w-7 sm:h-8 sm:w-8"
                 onClick={handleEdit}
                 title="Edit message"
               >
-                <Edit2 className="h-3 w-3" />
+                <Edit2 className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
               </Button>
               <Button
                 size="icon"
                 variant="ghost"
-                className="h-6 w-6"
+                className="h-7 w-7 sm:h-8 sm:w-8"
                 onClick={handleDelete}
                 title="Delete message"
               >
-                <Trash2 className="h-3 w-3" />
+                <Trash2 className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
               </Button>
             </div>
           )}

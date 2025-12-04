@@ -37,8 +37,9 @@ export function useUsers() {
       const response = await getUsers()
       return response.data.users
     },
-    staleTime: 2 * 60 * 1000, // 2 minutes
-    refetchOnWindowFocus: false,
+    staleTime: 30 * 1000, // 30 seconds - shorter to get fresh isOnline status
+    refetchInterval: 60 * 1000, // Refetch every minute as fallback
+    refetchOnWindowFocus: true,
   })
 }
 

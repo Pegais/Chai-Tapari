@@ -55,14 +55,14 @@ function Home() {
         initial="hidden"
         animate="visible"
       >
-        {/* Anime Characters Section */}
+        {/* Anime Characters Section - Responsive */}
         <motion.div
-          className="flex items-center justify-center gap-8 mb-8"
+          className="flex flex-col md:flex-row items-center justify-center gap-4 md:gap-8 mb-6 md:mb-8"
           variants={itemVariants}
         >
-          {/* Left Character */}
+          {/* Left Character - Hidden on mobile */}
           <motion.div
-            className="relative"
+            className="relative hidden md:block"
             animate={{
               y: [0, -10, 0],
             }}
@@ -75,11 +75,10 @@ function Home() {
             <img
               src="https://api.dicebear.com/7.x/avataaars/svg?seed=anime1&style=circle&backgroundColor=FF4655"
               alt="Anime Character 1"
-              className="w-32 h-32 rounded-full border-4 border-primary/50 shadow-lg shadow-primary/30"
+              className="w-24 md:w-32 h-24 md:h-32 rounded-full border-4 border-primary/50 shadow-lg shadow-primary/30"
             />
-            {/* Tea cup emoji or icon */}
             <motion.div
-              className="absolute -bottom-2 -right-2 text-4xl"
+              className="absolute -bottom-2 -right-2 text-3xl md:text-4xl"
               animate={{
                 rotate: [0, 10, -10, 0],
               }}
@@ -95,11 +94,11 @@ function Home() {
 
           {/* Center Logo/Title */}
           <motion.div
-            className="text-center"
+            className="text-center px-4"
             variants={itemVariants}
           >
             <motion.h1
-              className="text-7xl md:text-9xl font-black mb-4 bg-gradient-to-r from-primary via-accent to-primary bg-clip-text text-transparent"
+              className="text-4xl sm:text-5xl md:text-7xl lg:text-9xl font-black mb-2 md:mb-4 bg-gradient-to-r from-primary via-accent to-primary bg-clip-text text-transparent"
               animate={{
                 backgroundPosition: ["0%", "100%", "0%"],
               }}
@@ -115,16 +114,16 @@ function Home() {
               CHAI-TAPRI
             </motion.h1>
             <motion.p
-              className="text-xl md:text-2xl text-muted-foreground font-light"
+              className="text-base sm:text-lg md:text-xl lg:text-2xl text-muted-foreground font-light"
               variants={itemVariants}
             >
               Where conversations brew
             </motion.p>
           </motion.div>
 
-          {/* Right Character */}
+          {/* Right Character - Hidden on mobile */}
           <motion.div
-            className="relative"
+            className="relative hidden md:block"
             animate={{
               y: [0, 10, 0],
             }}
@@ -138,11 +137,10 @@ function Home() {
             <img
               src="https://api.dicebear.com/7.x/avataaars/svg?seed=anime2&style=circle&backgroundColor=FF6B35"
               alt="Anime Character 2"
-              className="w-32 h-32 rounded-full border-4 border-accent/50 shadow-lg shadow-accent/30"
+              className="w-24 md:w-32 h-24 md:h-32 rounded-full border-4 border-accent/50 shadow-lg shadow-accent/30"
             />
-            {/* Tea cup emoji or icon */}
             <motion.div
-              className="absolute -bottom-2 -left-2 text-4xl"
+              className="absolute -bottom-2 -left-2 text-3xl md:text-4xl"
               animate={{
                 rotate: [0, -10, 10, 0],
               }}
@@ -158,25 +156,33 @@ function Home() {
           </motion.div>
         </motion.div>
 
-        {/* Action Buttons */}
+        {/* Action Buttons - Responsive */}
         <motion.div
-          className="flex gap-6 mt-8"
+          className="flex flex-col sm:flex-row gap-4 sm:gap-6 mt-6 md:mt-8 w-full max-w-md px-4"
           variants={itemVariants}
         >
-          <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+          <motion.div 
+            className="w-full sm:w-auto" 
+            whileHover={{ scale: 1.02 }} 
+            whileTap={{ scale: 0.98 }}
+          >
             <Button
               size="lg"
-              className="px-8 py-6 text-lg font-bold bg-gradient-to-r from-primary to-accent hover:from-primary/90 hover:to-accent/90 shadow-lg shadow-primary/30"
+              className="w-full sm:w-auto px-6 sm:px-8 py-5 sm:py-6 text-base sm:text-lg font-bold bg-gradient-to-r from-primary to-accent hover:from-primary/90 hover:to-accent/90 shadow-lg shadow-primary/30"
               onClick={() => navigate("/login")}
             >
               Login
             </Button>
           </motion.div>
-          <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+          <motion.div 
+            className="w-full sm:w-auto" 
+            whileHover={{ scale: 1.02 }} 
+            whileTap={{ scale: 0.98 }}
+          >
             <Button
               size="lg"
               variant="outline"
-              className="px-8 py-6 text-lg font-bold border-2 border-primary/50 hover:bg-primary/10 hover:border-primary shadow-lg"
+              className="w-full sm:w-auto px-6 sm:px-8 py-5 sm:py-6 text-base sm:text-lg font-bold border-2 border-primary/50 hover:bg-primary/10 hover:border-primary shadow-lg"
               onClick={() => navigate("/signup")}
             >
               Sign Up
@@ -184,9 +190,9 @@ function Home() {
           </motion.div>
         </motion.div>
 
-        {/* Decorative Elements */}
+        {/* Decorative Elements - Hidden on mobile */}
         <motion.div
-          className="absolute bottom-10 left-10 text-primary/20"
+          className="hidden md:block absolute bottom-10 left-10 text-primary/20"
           animate={{
             rotate: [0, 360],
           }}
@@ -196,10 +202,10 @@ function Home() {
             ease: "linear",
           }}
         >
-          <div className="text-6xl">🍵</div>
+          <div className="text-4xl md:text-6xl">🍵</div>
         </motion.div>
         <motion.div
-          className="absolute top-10 right-10 text-accent/20"
+          className="hidden md:block absolute top-10 right-10 text-accent/20"
           animate={{
             rotate: [360, 0],
           }}
@@ -209,7 +215,7 @@ function Home() {
             ease: "linear",
           }}
         >
-          <div className="text-6xl">☕</div>
+          <div className="text-4xl md:text-6xl">☕</div>
         </motion.div>
       </motion.div>
     </div>

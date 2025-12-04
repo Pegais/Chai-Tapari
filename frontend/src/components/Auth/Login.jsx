@@ -89,24 +89,24 @@ function Login() {
         initial="hidden"
         animate="visible"
       >
-      <motion.div variants={itemVariants}>
-        <Card className="w-full max-w-2xl backdrop-blur-sm bg-card/95 shadow-xl border-primary/20">
-          <CardHeader className="space-y-4 pb-8">
+      <motion.div variants={itemVariants} className="w-full max-w-md md:max-w-2xl px-4">
+        <Card className="w-full backdrop-blur-sm bg-card/95 shadow-xl border-primary/20">
+          <CardHeader className="space-y-3 md:space-y-4 pb-6 md:pb-8">
             <motion.div variants={itemVariants}>
-              <CardTitle className="text-4xl md:text-5xl font-bold text-center bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
+              <CardTitle className="text-3xl sm:text-4xl md:text-5xl font-bold text-center bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
                 Welcome Back
               </CardTitle>
             </motion.div>
             <motion.div variants={itemVariants}>
-              <CardDescription className="text-center text-lg">
+              <CardDescription className="text-center text-sm sm:text-base md:text-lg">
                 Sign in to your Chai Tapri account
               </CardDescription>
             </motion.div>
           </CardHeader>
-          <CardContent className="px-8 pb-8">
-            <form onSubmit={handleSubmit} className="space-y-8">
-              <motion.div className="space-y-4" variants={itemVariants}>
-                <label htmlFor="email" className="text-base font-semibold block">
+          <CardContent className="px-4 sm:px-6 md:px-8 pb-6 md:pb-8">
+            <form onSubmit={handleSubmit} className="space-y-6 md:space-y-8">
+              <motion.div className="space-y-2 md:space-y-4" variants={itemVariants}>
+                <label htmlFor="email" className="text-sm sm:text-base font-semibold block">
                   Email Address
                 </label>
                 <Input
@@ -117,11 +117,11 @@ function Login() {
                   onChange={(e) => setEmail(e.target.value)}
                   required
                   disabled={loading}
-                  className="h-14 text-base bg-background/50 border-primary/20 focus:border-primary px-4"
+                  className="h-12 sm:h-14 text-sm sm:text-base bg-background/50 border-primary/20 focus:border-primary px-4"
                 />
               </motion.div>
-              <motion.div className="space-y-4" variants={itemVariants}>
-                <label htmlFor="password" className="text-base font-semibold block">
+              <motion.div className="space-y-2 md:space-y-4" variants={itemVariants}>
+                <label htmlFor="password" className="text-sm sm:text-base font-semibold block">
                   Password
                 </label>
                 <Input
@@ -132,7 +132,7 @@ function Login() {
                   onChange={(e) => setPassword(e.target.value)}
                   required
                   disabled={loading}
-                  className="h-14 text-base bg-background/50 border-primary/20 focus:border-primary px-4"
+                  className="h-12 sm:h-14 text-sm sm:text-base bg-background/50 border-primary/20 focus:border-primary px-4"
                 />
               </motion.div>
               <AnimatePresence>
@@ -141,7 +141,7 @@ function Login() {
                     initial={{ opacity: 0, y: -10 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -10 }}
-                    className="text-base text-destructive bg-destructive/10 p-4 rounded-md border border-destructive/20"
+                    className="text-sm sm:text-base text-destructive bg-destructive/10 p-3 sm:p-4 rounded-md border border-destructive/20"
                   >
                     {error}
                   </motion.div>
@@ -150,13 +150,13 @@ function Login() {
               <motion.div variants={itemVariants} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
                 <Button 
                   type="submit" 
-                  className="w-full h-14 text-lg font-bold bg-gradient-to-r from-primary to-accent hover:from-primary/90 hover:to-accent/90" 
+                  className="w-full h-12 sm:h-14 text-base sm:text-lg font-bold bg-gradient-to-r from-primary to-accent hover:from-primary/90 hover:to-accent/90" 
                   disabled={loading}
                 >
                   {loading ? "Signing in..." : "Sign In"}
                 </Button>
               </motion.div>
-              <motion.div className="text-center text-base text-muted-foreground pt-4" variants={itemVariants}>
+              <motion.div className="text-center text-sm sm:text-base text-muted-foreground pt-2 md:pt-4" variants={itemVariants}>
                 Don't have an account?{" "}
                 <button
                   type="button"

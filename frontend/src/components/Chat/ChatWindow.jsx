@@ -216,15 +216,17 @@ function ChatWindow() {
     >
       {/* Channel Header - Fixed */}
       <motion.div
-        className="border-b border-primary/20 p-4 bg-card/95 backdrop-blur-sm flex-shrink-0"
+        className="border-b border-primary/20 p-3 sm:p-4 bg-card/95 backdrop-blur-sm flex-shrink-0"
         initial={{ y: -10, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ delay: 0.1 }}
       >
-        <h1 className="text-xl font-semibold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
+        <h1 className="text-lg sm:text-xl font-semibold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
           #{channel.name}
         </h1>
-        <p className="text-sm text-muted-foreground">{channel.description}</p>
+        {channel.description && (
+          <p className="text-xs sm:text-sm text-muted-foreground mt-1">{channel.description}</p>
+        )}
         
         {/* Privacy Notice */}
         <motion.div
@@ -260,7 +262,7 @@ function ChatWindow() {
 
       {/* Message Input - Fixed at bottom (always in viewport) */}
       <motion.div
-        className="border-t border-primary/20 p-4 bg-card/95 backdrop-blur-sm flex-shrink-0"
+        className="border-t border-primary/20 p-2 sm:p-3 md:p-4 bg-card/95 backdrop-blur-sm flex-shrink-0"
         initial={{ y: 10, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ delay: 0.2 }}

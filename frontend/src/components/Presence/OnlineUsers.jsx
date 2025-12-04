@@ -6,23 +6,123 @@
  * Impact: Users can see who is available for real-time communication
  */
 
-import React from "react"
+import React, { useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import { motion } from "framer-motion"
 import { Avatar, AvatarImage, AvatarFallback } from "../ui/avatar"
 import AnimatedList from "../ui/AnimatedList"
 import { ScrollArea } from "../ui/scroll-area"
 import { MessageCircle } from "lucide-react"
-import { useUsers, useOnlineUsers } from "../../hooks/useUsers"
+import { useUsers, useOnlineUsers, userKeys } from "../../hooks/useUsers"
 import { useAuth } from "../../context/AuthContext"
 import { useConversation } from "../../hooks/useDirectMessages"
 import { useSendDirectMessage } from "../../hooks/useDirectMessages"
+import { getSocket } from "../../services/socket"
+import { useQueryClient } from "@tanstack/react-query"
 
 function OnlineUsers() {
   const navigate = useNavigate()
   const { user: currentUser } = useAuth()
+  const queryClient = useQueryClient()
   const { data: allUsers = [], isLoading: usersLoading } = useUsers()
   const { data: onlineUsersList = [], isLoading: onlineLoading } = useOnlineUsers()
+  
+  /**
+   * Listen for real-time online/offline status updates
+   * Why: Update user status immediately when users go online/offline
+   * How: Listens to WebSocket events and updates React Query cache
+   * Impact: Real-time presence updates without polling delay
+   */
+  useEffect(() => {
+    const socket = getSocket()
+    if (!socket) return
+
+    const handleUserOnline = (data) => {
+      const { userId, user: userData } = data
+      
+      // Update all users cache - set user to online
+      queryClient.setQueryData(userKeys.lists(), (oldData) => {
+        if (!oldData) return oldData
+        
+        return oldData.map(user => {
+          const userIdStr = typeof user._id === 'string' ? user._id : user._id?.toString()
+          const newUserIdStr = typeof userId === 'string' ? userId : userId?.toString()
+          
+          if (userIdStr === newUserIdStr) {
+            return {
+              ...user,
+              isOnline: true,
+            }
+          }
+          return user
+        })
+      })
+      
+      // Update online users cache - add user if not present
+      queryClient.setQueryData(userKeys.online(), (oldData) => {
+        if (!oldData) return oldData
+        
+        const userIdStr = typeof userId === 'string' ? userId : userId?.toString()
+        const exists = oldData.some(u => {
+          const uId = typeof u._id === 'string' ? u._id : u._id?.toString()
+          return uId === userIdStr
+        })
+        
+        if (!exists) {
+          return [...oldData, userData || { _id: userId, isOnline: true }]
+        }
+        
+        return oldData.map(u => {
+          const uId = typeof u._id === 'string' ? u._id : u._id?.toString()
+          if (uId === userIdStr) {
+            return { ...u, isOnline: true }
+          }
+          return u
+        })
+      })
+    }
+
+    const handleUserOffline = (data) => {
+      const { userId } = data
+      
+      // Update all users cache - set user to offline
+      queryClient.setQueryData(userKeys.lists(), (oldData) => {
+        if (!oldData) return oldData
+        
+        return oldData.map(user => {
+          const userIdStr = typeof user._id === 'string' ? user._id : user._id?.toString()
+          const newUserIdStr = typeof userId === 'string' ? userId : userId?.toString()
+          
+          if (userIdStr === newUserIdStr) {
+            return {
+              ...user,
+              isOnline: false,
+            }
+          }
+          return user
+        })
+      })
+      
+      // Update online users cache - remove user
+      queryClient.setQueryData(userKeys.online(), (oldData) => {
+        if (!oldData) return oldData
+        
+        const userIdStr = typeof userId === 'string' ? userId : userId?.toString()
+        return oldData.filter(u => {
+          const uId = typeof u._id === 'string' ? u._id : u._id?.toString()
+          return uId !== userIdStr
+        })
+      })
+    }
+
+    socket.on('user:online', handleUserOnline)
+    socket.on('user:offline', handleUserOffline)
+
+    return () => {
+      socket.off('user:online', handleUserOnline)
+      socket.off('user:offline', handleUserOffline)
+    }
+  }, [queryClient])
 
   /**
    * Filter and sort users by online status
@@ -45,28 +145,37 @@ function OnlineUsers() {
     })
   )
   
+  // Determine online/offline status
+  // Priority: onlineUsersList > isOnline field from allUsers
   const onlineUsers = otherUsers.filter((user) => {
     const userId = typeof user._id === 'string' ? user._id : user._id?.toString()
-    return onlineUserIds.has(userId) || user.isOnline
+    // User is online if:
+    // 1. They are in the onlineUsersList, OR
+    // 2. Their isOnline field is explicitly true
+    return onlineUserIds.has(userId) || user.isOnline === true
   })
+  
   const offlineUsers = otherUsers.filter((user) => {
     const userId = typeof user._id === 'string' ? user._id : user._id?.toString()
-    return !onlineUserIds.has(userId) && !user.isOnline
+    // User is offline if:
+    // 1. They are NOT in the onlineUsersList, AND
+    // 2. Their isOnline field is NOT true (false or undefined)
+    return !onlineUserIds.has(userId) && user.isOnline !== true
   })
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
       {/* Header - Fixed */}
       <motion.div
-        className="p-4 border-b border-primary/20 flex-shrink-0"
+        className="p-3 md:p-4 border-b border-primary/20 flex-shrink-0"
         initial={{ y: -10, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ delay: 0.1 }}
       >
-        <h2 className="text-lg font-semibold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
+        <h2 className="text-base md:text-lg font-semibold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
           Online Users
         </h2>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-xs md:text-sm text-muted-foreground">
           {onlineUsers.length} online, {offlineUsers.length} offline
         </p>
       </motion.div>

@@ -110,12 +110,23 @@ const uploadFile = async (file, userId) => {
     const fileKey = `uploads/${userId}/${Date.now()}-${fileName}`
 
     // Upload to S3
+    // Note: ACL is removed because modern S3 buckets have ACLs disabled by default
+    // For public access, configure bucket policy instead:
+    // {
+    //   "Version": "2012-10-17",
+    //   "Statement": [{
+    //     "Effect": "Allow",
+    //     "Principal": "*",
+    //     "Action": "s3:GetObject",
+    //     "Resource": "arn:aws:s3:::YOUR_BUCKET_NAME/uploads/*"
+    //   }]
+    // }
     const uploadParams = {
       Bucket: BUCKET_NAME,
       Key: fileKey,
       Body: file.buffer,
       ContentType: file.mimetype,
-      ACL: 'public-read', // Make files publicly accessible
+      // ACL removed - use bucket policy for public access instead
     }
 
     const uploadResult = await s3.upload(uploadParams).promise()

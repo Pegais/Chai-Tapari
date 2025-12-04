@@ -351,21 +351,21 @@ function Signup() {
         animate={{ opacity: 1 }}
         transition={{ duration: 0.5 }}
       >
-        <Card className="w-full max-w-2xl backdrop-blur-sm bg-card/95 shadow-xl border-primary/20">
-          <CardHeader className="space-y-1">
-            <CardTitle className="text-2xl font-bold text-center bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
+        <Card className="w-full max-w-md md:max-w-2xl backdrop-blur-sm bg-card/95 shadow-xl border-primary/20">
+          <CardHeader className="space-y-1 px-4 sm:px-6">
+            <CardTitle className="text-xl sm:text-2xl font-bold text-center bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
               Create Account
             </CardTitle>
-            <CardDescription className="text-center">
+            <CardDescription className="text-center text-sm sm:text-base">
               Join Chai Tapri and start chatting
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-6">
+          <CardContent className="space-y-4 sm:space-y-6 px-4 sm:px-6 pb-4 sm:pb-6">
             {/* Stepper */}
             <Stepper steps={steps} currentStep={currentStep} />
 
             {/* Step Content */}
-            <div className="min-h-[400px] relative overflow-hidden">
+            <div className="min-h-[300px] sm:min-h-[400px] relative overflow-hidden">
               <AnimatePresence mode="wait" custom={direction}>
                 <motion.div
                   key={currentStep}
@@ -385,13 +385,13 @@ function Signup() {
             </div>
 
             {/* Navigation Buttons */}
-            <div className="flex justify-between gap-4 pt-4 border-t border-primary/20">
+            <div className="flex justify-between gap-2 sm:gap-4 pt-3 sm:pt-4 border-t border-primary/20">
               <Button
                 type="button"
                 variant="outline"
                 onClick={handlePrevious}
                 disabled={currentStep === 1}
-                className="border-primary/20 hover:bg-primary/10"
+                className="border-primary/20 hover:bg-primary/10 text-sm sm:text-base px-3 sm:px-4 h-10 sm:h-11"
               >
                 Previous
               </Button>
@@ -399,7 +399,7 @@ function Signup() {
                 <Button
                   type="button"
                   onClick={handleNext}
-                  className="bg-gradient-to-r from-primary to-accent hover:from-primary/90 hover:to-accent/90"
+                  className="bg-gradient-to-r from-primary to-accent hover:from-primary/90 hover:to-accent/90 text-sm sm:text-base px-3 sm:px-4 h-10 sm:h-11"
                 >
                   Next
                 </Button>
@@ -408,9 +408,9 @@ function Signup() {
                   type="button"
                   onClick={handleSubmit}
                   disabled={loading}
-                  className="bg-gradient-to-r from-primary to-accent hover:from-primary/90 hover:to-accent/90"
+                  className="bg-gradient-to-r from-primary to-accent hover:from-primary/90 hover:to-accent/90 text-sm sm:text-base px-3 sm:px-4 h-10 sm:h-11"
                 >
-                  {loading ? "Creating account..." : "Create Account"}
+                  {loading ? "Creating..." : "Create Account"}
                 </Button>
               )}
             </div>
