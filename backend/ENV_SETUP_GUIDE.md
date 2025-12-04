@@ -39,7 +39,7 @@ This guide explains how to set up all environment variables for the Chai Tapri b
 **MONGODB_URI** (Required)
 - Description: MongoDB connection string
 - Local: `mongodb://localhost:27017/chai-tapri`
-- MongoDB Atlas: `mongodb+srv://username:password@cluster.mongodb.net/chai-tapri`
+- MongoDB Atlas: ``
 - Example: `MONGODB_URI=mongodb://localhost:27017/chai-tapri`
 
 ### 3. Redis Configuration
