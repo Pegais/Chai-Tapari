@@ -95,7 +95,11 @@ channelSchema.virtual('memberCount').get(function() {
  * Impact: Enables adding users to channels
  */
 channelSchema.methods.addMember = function(userId) {
-  if (!this.members.includes(userId)) {
+  // Check if user is already a member using proper ObjectId comparison
+  // Why: Prevent duplicate members in channel
+  // How: Uses isMember method which properly compares ObjectIds
+  // Impact: Ensures each user appears only once in members array
+  if (!this.isMember(userId)) {
     this.members.push(userId)
     return this.save()
   }

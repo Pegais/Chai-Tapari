@@ -58,9 +58,15 @@ const createChannel = async (channelData, creatorId) => {
       throw error
     }
 
+    // Remove duplicates from members array
+    // Why: Prevent same user from being added multiple times
+    // How: Creates Set of unique member IDs, filters out creator
+    // Impact: Ensures each user appears only once in members list
+    const uniqueMemberIds = [...new Set(members.map(m => m.toString()))]
+    
     // Filter out creator from members list and validate
-    const additionalMembers = members.filter(memberId => 
-      memberId.toString() !== creatorId.toString()
+    const additionalMembers = uniqueMemberIds.filter(memberId => 
+      memberId !== creatorId.toString()
     )
 
     if (additionalMembers.length === 0) {
@@ -79,9 +85,31 @@ const createChannel = async (channelData, creatorId) => {
   }
 
   // Create channel with members
-  const channelMembers = isPrivate 
-    ? [creatorId, ...members.filter(m => m.toString() !== creatorId.toString())]
-    : [creatorId] // Public channels start with just creator
+  // Remove duplicates and ensure creator is included only once
+  // Why: Prevent duplicate members in channel
+  // How: Creates Set of unique member IDs, keeps original ObjectId format
+  // Impact: Ensures each user appears only once in members array
+  let channelMembers = [creatorId]
+  
+  if (isPrivate && members && members.length > 0) {
+    // Remove duplicates from members array using Set
+    // Convert to strings for comparison, then get unique values
+    const uniqueMemberStrings = [...new Set(members.map(m => m.toString()))]
+    
+    // Filter out creator and keep original member objects
+    // Why: Preserve ObjectId format from original members array
+    // How: Maps unique strings back to original member objects
+    // Impact: Maintains proper ObjectId format for database
+    const additionalUniqueMembers = uniqueMemberStrings
+      .filter(memberIdStr => memberIdStr !== creatorId.toString())
+      .map(memberIdStr => {
+        // Find original member object to preserve ObjectId format
+        return members.find(m => m.toString() === memberIdStr)
+      })
+      .filter(Boolean) // Remove any undefined values
+    
+    channelMembers = [creatorId, ...additionalUniqueMembers]
+  }
 
   const channel = new Channel({
     name: name.toLowerCase(),
@@ -116,11 +144,22 @@ const getAllChannels = async (userId = null) => {
   let query = { isPrivate: false }
 
   // If user authenticated, include their private channels
+  // Why: Show private channels only to members
+  // How: Uses $or to get public channels OR private channels where user is a member
+  // Impact: Private channels are only visible to their members
   if (userId) {
+    const mongoose = require('mongoose')
+    const userObjectId = mongoose.Types.ObjectId.isValid(userId) 
+      ? new mongoose.Types.ObjectId(userId)
+      : userId
+    
     query = {
       $or: [
-        { isPrivate: false },
-        { isPrivate: true, members: userId },
+        { isPrivate: false }, // All public channels
+        { 
+          isPrivate: true, 
+          members: { $in: [userObjectId] } // Only private channels where user is a member
+        },
       ],
     }
   }
@@ -165,10 +204,21 @@ const getChannelById = async (channelId, userId = null) => {
   }
 
   // Check if private channel and user is member
-  if (channel.isPrivate && userId && !channel.isMember(userId)) {
-    const error = new Error('Unauthorized access to private channel')
-    error.statusCode = 403
-    throw error
+  // Why: Prevent unauthorized access to private channels
+  // How: Verifies user membership for private channels
+  // Impact: Private channels are only accessible to their members
+  if (channel.isPrivate) {
+    if (!userId) {
+      const error = new Error('Access denied. Authentication required for private channels.')
+      error.statusCode = 403
+      throw error
+    }
+    
+    if (!channel.isMember(userId)) {
+      const error = new Error('Access denied. You are not a member of this private channel.')
+      error.statusCode = 403
+      throw error
+    }
   }
 
   return channel

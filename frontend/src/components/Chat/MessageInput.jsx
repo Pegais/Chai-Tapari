@@ -14,6 +14,7 @@ import { useUploadMultipleFiles } from "../../hooks/useFileUpload"
 import { useCreateMessage, messageKeys } from "../../hooks/useMessages"
 import { getSocket } from "../../services/socket"
 import { useQueryClient } from "@tanstack/react-query"
+import { extractUrls, createVideoEmbed, isVideoUrl } from "../../utils/videoUtils"
 
 // Debounce utility function
 // Why: Prevent excessive API calls during rapid typing
@@ -167,11 +168,26 @@ function MessageInput({ channelId, onMessageSent }) {
         attachments = await Promise.all(selectedFiles.map(uploadFile))
       }
 
+      // Detect video URLs and create video embed
+      // Why: Automatically embed YouTube/Vimeo videos when links are shared
+      // How: Extracts URLs from message, checks if video platform, creates embed object
+      // Impact: Rich video previews in chat messages
+      let videoEmbed = null
+      const urls = extractUrls(message.trim())
+      if (urls.length > 0) {
+        // Check first URL for video platform
+        const firstUrl = urls[0]
+        if (isVideoUrl(firstUrl)) {
+          videoEmbed = createVideoEmbed(firstUrl)
+        }
+      }
+
       // Prepare message data
       const messageData = {
         content: message.trim(),
-        messageType: attachments.length > 0 ? "file" : "text",
+        messageType: attachments.length > 0 ? "file" : (videoEmbed ? "video" : "text"),
         attachments: attachments.length > 0 ? attachments : undefined,
+        videoEmbed: videoEmbed || undefined,
       }
 
       // Create optimistic message for instant UI update
@@ -185,8 +201,9 @@ function MessageInput({ channelId, onMessageSent }) {
         },
         channel: channelId,
         content: message.trim(),
-        messageType: attachments.length > 0 ? "file" : "text",
+        messageType: messageData.messageType,
         attachments: attachments.length > 0 ? attachments : undefined,
+        videoEmbed: videoEmbed || undefined,
         timestamp: new Date(),
         createdAt: new Date(),
         isOptimistic: true, // Flag to identify optimistic messages

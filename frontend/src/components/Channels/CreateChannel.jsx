@@ -148,12 +148,30 @@ function CreateChannel({ onClose, onSuccess }) {
                           >
                             <input
                               type="checkbox"
-                              checked={selectedMembers.includes(userItem._id)}
+                              checked={selectedMembers.some(id => 
+                                (typeof id === 'string' ? id : id.toString()) === 
+                                (typeof userItem._id === 'string' ? userItem._id : userItem._id.toString())
+                              )}
                               onChange={(e) => {
+                                const userId = userItem._id
+                                const userIdStr = typeof userId === 'string' ? userId : userId.toString()
+                                
                                 if (e.target.checked) {
-                                  setSelectedMembers([...selectedMembers, userItem._id])
+                                  // Prevent duplicate members
+                                  // Why: Ensure each user can only be added once
+                                  // How: Checks if user ID already exists before adding
+                                  // Impact: Prevents duplicate member entries
+                                  if (!selectedMembers.some(id => {
+                                    const idStr = typeof id === 'string' ? id : id.toString()
+                                    return idStr === userIdStr
+                                  })) {
+                                    setSelectedMembers([...selectedMembers, userId])
+                                  }
                                 } else {
-                                  setSelectedMembers(selectedMembers.filter(id => id !== userItem._id))
+                                  setSelectedMembers(selectedMembers.filter(id => {
+                                    const idStr = typeof id === 'string' ? id : id.toString()
+                                    return idStr !== userIdStr
+                                  }))
                                 }
                               }}
                               disabled={createChannel.isPending}

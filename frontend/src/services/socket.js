@@ -15,11 +15,13 @@ import { io } from 'socket.io-client'
 
 /**
  * Get Socket.IO server URL
- * Why: Support different environments
+ * Why: Support different environments (dev, staging, production)
  * How: Reads from environment variable or defaults to localhost
  * Impact: Easy environment-specific configuration
+ * 
+ * Production: Should be set to Railway backend URL (e.g., https://your-app.railway.app)
  */
-const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || 'http://localhost:5000'
+const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || process.env.REACT_APP_API_URL?.replace('/api', '') || 'http://localhost:5000'
 
 /**
  * Socket instance

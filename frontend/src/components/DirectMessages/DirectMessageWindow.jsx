@@ -20,6 +20,7 @@ import { useUser } from "../../hooks/useUsers"
 import { useQueryClient } from "@tanstack/react-query"
 import { Avatar, AvatarImage, AvatarFallback } from "../ui/avatar"
 import { Button } from "../ui/button"
+import { extractUrls, createVideoEmbed, isVideoUrl } from "../../utils/videoUtils"
 
 function DirectMessageWindow() {
   const { conversationId, userId } = useParams()
@@ -234,8 +235,9 @@ function DirectMessageWindow() {
         },
         conversation: activeConversationId,
         content: messageContent.trim(),
-        messageType: attachments.length > 0 ? "file" : "text",
+        messageType: attachments.length > 0 ? "file" : (videoEmbed ? "video" : "text"),
         attachments: attachments.length > 0 ? attachments : undefined,
+        videoEmbed: videoEmbed || undefined,
         timestamp: new Date(),
         createdAt: new Date(),
         isOptimistic: true,
@@ -262,11 +264,26 @@ function DirectMessageWindow() {
         })
       }
 
+      // Detect video URLs and create video embed
+      // Why: Automatically embed YouTube/Vimeo videos when links are shared
+      // How: Extracts URLs from message, checks if video platform, creates embed object
+      // Impact: Rich video previews in direct messages
+      let videoEmbed = null
+      const { extractUrls, createVideoEmbed, isVideoUrl } = require("../../utils/videoUtils")
+      const urls = extractUrls(messageContent.trim())
+      if (urls.length > 0) {
+        const firstUrl = urls[0]
+        if (isVideoUrl(firstUrl)) {
+          videoEmbed = createVideoEmbed(firstUrl)
+        }
+      }
+
       const messageData = {
         recipientId: targetRecipientId,
         content: messageContent.trim(),
-        messageType: attachments.length > 0 ? "file" : "text",
+        messageType: attachments.length > 0 ? "file" : (videoEmbed ? "video" : "text"),
         attachments: attachments.length > 0 ? attachments : undefined,
+        videoEmbed: videoEmbed || undefined,
       }
 
       if (socket) {

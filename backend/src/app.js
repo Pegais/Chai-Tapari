@@ -56,15 +56,48 @@ app.use(helmet({
 /**
  * CORS configuration
  * Why: Allow frontend to make requests from different origin
- * How: Configures CORS with frontend URL
- * Impact: Frontend can communicate with backend API
+ * How: Configures CORS with frontend URL(s) - supports multiple origins for dev/prod
+ * Impact: Frontend can communicate with backend API across origins
+ * 
+ * Production Notes:
+ * - Supports multiple origins (comma-separated in FRONTEND_URL)
+ * - Allows credentials for JWT token authentication
+ * - Properly configured for Railway (backend) and Vercel (frontend) deployment
  */
+const getAllowedOrigins = () => {
+  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000'
+  
+  // Support multiple origins (comma-separated) for production
+  if (frontendUrl.includes(',')) {
+    return frontendUrl.split(',').map(url => url.trim())
+  }
+  
+  // Support single origin or array
+  return frontendUrl
+}
+
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
-  credentials: true,
-  methods: ['GET', 'POST', 'PATCH', 'DELETE', 'PUT'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, Postman, etc.)
+    if (!origin) {
+      return callback(null, true)
+    }
+    
+    const allowedOrigins = getAllowedOrigins()
+    const originsArray = Array.isArray(allowedOrigins) ? allowedOrigins : [allowedOrigins]
+    
+    // Check if origin is allowed
+    if (originsArray.includes(origin) || process.env.NODE_ENV === 'development') {
+      callback(null, true)
+    } else {
+      callback(new Error('Not allowed by CORS'))
+    }
+  },
+  credentials: true, // Required for cookies and Authorization headers
+  methods: ['GET', 'POST', 'PATCH', 'DELETE', 'PUT', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   exposedHeaders: ['Content-Type', 'Content-Length'],
+  maxAge: 86400, // 24 hours - cache preflight requests
 }))
 
 /**

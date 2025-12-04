@@ -22,10 +22,25 @@ const router = express.Router()
  * Impact: Frontend can display avatars without CORS errors
  */
 const cors = require('cors')
+
+// Support multiple origins for avatar CORS
+// Why: Allow avatars to load from multiple frontend origins (dev + prod)
+// How: Parses comma-separated FRONTEND_URL or uses single origin
+// Impact: Avatars work in both development and production
+const getAllowedAvatarOrigins = () => {
+  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000'
+  
+  if (frontendUrl.includes(',')) {
+    return frontendUrl.split(',').map(url => url.trim())
+  }
+  
+  return frontendUrl
+}
+
 const avatarCors = cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
-  credentials: false,
-  methods: ['GET'],
+  origin: getAllowedAvatarOrigins(),
+  credentials: false, // Images don't need credentials
+  methods: ['GET', 'OPTIONS'],
   allowedHeaders: ['Content-Type'],
 })
 
@@ -106,8 +121,18 @@ router.get('/:filename', avatarCors, (req, res, next) => {
     }
 
     // Set CORS headers explicitly for image requests
+    // Why: Ensure proper CORS headers for cross-origin image loading
+    // How: Sets appropriate CORS headers based on request origin
+    // Impact: Images load correctly from any allowed origin
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000'
-    res.setHeader('Access-Control-Allow-Origin', frontendUrl)
+    const allowedOrigins = frontendUrl.includes(',') 
+      ? frontendUrl.split(',').map(url => url.trim())
+      : [frontendUrl]
+    
+    const requestOrigin = req.headers.origin
+    const origin = allowedOrigins.includes(requestOrigin) ? requestOrigin : allowedOrigins[0]
+    
+    res.setHeader('Access-Control-Allow-Origin', origin)
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS')
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
     res.setHeader('Access-Control-Allow-Credentials', 'false')

@@ -200,9 +200,25 @@ function ChatWindow() {
   }
 
   if (channelError || !channel) {
+    // Check if error is due to unauthorized access to private channel
+    const isUnauthorized = channelError?.response?.status === 403 || 
+                          channelError?.status === 403 ||
+                          (channelError?.message && channelError.message.includes('Access denied'))
+    
     return (
-      <div className="flex-1 flex items-center justify-center">
-        <p className="text-destructive">Error loading channel</p>
+      <div className="flex-1 flex items-center justify-center p-4">
+        <div className="text-center space-y-2">
+          <p className="text-destructive font-semibold">
+            {isUnauthorized 
+              ? "Access Denied" 
+              : "Error loading channel"}
+          </p>
+          <p className="text-sm text-muted-foreground">
+            {isUnauthorized 
+              ? "You are not a member of this private channel." 
+              : channelError?.message || "Please try again later."}
+          </p>
+        </div>
       </div>
     )
   }

@@ -70,12 +70,29 @@ const startServer = async () => {
     const server = http.createServer(app)
 
     // Set up Socket.IO
+    // CORS configuration for WebSocket connections
+    // Why: Allow frontend WebSocket connections from different origins
+    // How: Configures Socket.IO CORS with frontend URL(s)
+    // Impact: Real-time features work across origins
+    const getAllowedSocketOrigins = () => {
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000'
+      
+      // Support multiple origins (comma-separated) for production
+      if (frontendUrl.includes(',')) {
+        return frontendUrl.split(',').map(url => url.trim())
+      }
+      
+      return frontendUrl
+    }
+    
     const io = new Server(server, {
       cors: {
-        origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+        origin: getAllowedSocketOrigins(),
         methods: ['GET', 'POST'],
-        credentials: true,
+        credentials: true, // Required for authentication tokens
+        allowedHeaders: ['Authorization', 'Content-Type'],
       },
+      transports: ['websocket', 'polling'], // Support both transports for better compatibility
     })
 
     // Initialize socket handler (pass null if Redis not available)
