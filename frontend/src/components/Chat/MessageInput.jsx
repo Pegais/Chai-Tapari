@@ -12,10 +12,11 @@ import { Button } from "../ui/button"
 import { Paperclip, Send, X, Check } from "lucide-react"
 import { useAuth } from "../../context/AuthContext"
 import { useUploadMultipleFiles } from "../../hooks/useFileUpload"
-import { useCreateMessage, messageKeys } from "../../hooks/useMessages"
+import { useCreateMessage } from "../../hooks/useMessages"
 import { getSocket } from "../../services/socket"
-import { useQueryClient } from "@tanstack/react-query"
 import { extractUrls, createVideoEmbed, isVideoUrl } from "../../utils/videoUtils"
+import { addToQueue, updateQueueStatus, removeFromQueue, getMessageByOptimisticId } from "../../services/indexedDBQueue"
+import { useMessageStore } from "../../stores/useMessageStore"
 
 // Debounce utility function
 // Why: Prevent excessive API calls during rapid typing
@@ -35,9 +36,10 @@ function debounce(func, wait) {
 
 function MessageInput({ channelId, onMessageSent }) {
   const { user } = useAuth()
-  const queryClient = useQueryClient()
   const uploadFiles = useUploadMultipleFiles()
   const createMessage = useCreateMessage()
+  
+  // Note: Using getState() directly for store actions to avoid re-render loops
   const [message, setMessage] = useState("")
   const [selectedFiles, setSelectedFiles] = useState([])
   const [uploadProgress, setUploadProgress] = useState({})
@@ -331,23 +333,10 @@ function MessageInput({ channelId, onMessageSent }) {
           isOptimistic: true,
         }
 
-        // Optimistically update cache
-        queryClient.setQueryData(messageKeys.list(channelId), (oldData) => {
-          if (!oldData) return oldData
-          const lastPageIndex = oldData.pages.length - 1
-          return {
-            ...oldData,
-            pages: oldData.pages.map((page, index) => {
-              if (index === lastPageIndex) {
-                return {
-                  ...page,
-                  messages: [...page.messages, optimisticTextMessage],
-                }
-              }
-              return page
-            }),
-          }
-        })
+        // Optimistically add to Zustand store
+        if (channelId) {
+          useMessageStore.getState().mergeMessage(channelId, optimisticTextMessage)
+        }
 
         // Send text message via WebSocket immediately
         if (socket) {
@@ -414,9 +403,29 @@ function MessageInput({ channelId, onMessageSent }) {
         videoEmbed: videoEmbed || undefined,
       }
 
-      // Create optimistic message for instant UI update
+      // Create optimistic message with status tracking
+      const optimisticMessageId = `temp-${Date.now()}-${Math.random()}`
+      
+      // Add message to IndexedDB queue BEFORE sending (persistent storage)
+      let queueId = null
+      try {
+        queueId = await addToQueue({
+          channelId,
+          sender: {
+            _id: user._id,
+            username: user.username,
+            email: user.email,
+            avatar: user.avatar,
+          },
+          ...messageData,
+        }, 'channel', optimisticMessageId)
+      } catch (queueError) {
+        console.error('[MessageInput] Error adding to queue:', queueError)
+        // Continue even if queue fails - message will still be sent
+      }
+
       const optimisticMessage = {
-        _id: `temp-${Date.now()}`,
+        _id: optimisticMessageId,
         sender: {
           _id: user._id,
           username: user.username,
@@ -430,58 +439,92 @@ function MessageInput({ channelId, onMessageSent }) {
         videoEmbed: videoEmbed || undefined,
         timestamp: new Date(),
         createdAt: new Date(),
-        isOptimistic: true, // Flag to identify optimistic messages
+        isOptimistic: true,
+        status: 'pending',
+        queueId: queueId, // Link queue ID for retry/delete
       }
 
-      // Optimistically update the cache immediately
-      // Messages are in chronological order (oldest first), so add new message at the end
-      queryClient.setQueryData(messageKeys.list(channelId), (oldData) => {
-        if (!oldData) return oldData
-        
-        // Get the last page (newest messages)
-        const lastPageIndex = oldData.pages.length - 1
-        const lastPage = oldData.pages[lastPageIndex]
-        
-        return {
-          ...oldData,
-          pages: oldData.pages.map((page, index) => {
-            if (index === lastPageIndex) {
-              // Add to end of last page (newest messages are at the end)
-              return {
-                ...page,
-                messages: [...page.messages, optimisticMessage],
-              }
-            }
-            return page
-          }),
+      // Optimistically add to Zustand store immediately
+      if (channelId) {
+        useMessageStore.getState().mergeMessage(channelId, optimisticMessage)
+      }
+
+      // Send message with timeout and error handling
+      const sendPromise = new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error('Message send timeout. Please check your connection.'))
+        }, 10000) // 10 second timeout
+
+        if (socket && socket.connected) {
+          // Send via WebSocket with error handling
+          try {
+            socket.emit('send-message', {
+              channelId,
+              ...messageData,
+            })
+            
+            // Wait for confirmation or timeout
+            setTimeout(() => {
+              clearTimeout(timeout)
+              // If no error received, assume success (will be confirmed by new-message event)
+              resolve()
+            }, 1000)
+          } catch (error) {
+            clearTimeout(timeout)
+            reject(error)
+          }
+        } else {
+          // Fallback to REST API with timeout
+          clearTimeout(timeout)
+          createMessage.mutateAsync({
+            channelId,
+            messageData,
+          })
+            .then(() => {
+              resolve()
+            })
+            .catch((error) => {
+              reject(error)
+            })
         }
       })
 
-      // Send message via WebSocket (preferred for real-time)
-      if (socket) {
-        socket.emit('send-message', {
-          channelId,
-          ...messageData,
-        })
-      } else {
-        // Fallback to REST API
-        await createMessage.mutateAsync({
-          channelId,
-          messageData,
-        })
-      }
+      try {
+        await sendPromise
+        
+        // Update message status to sending
+        if (queueId) {
+          await updateQueueStatus(queueId, 'sending')
+        }
+        
+        // Update message status in Zustand store
+        if (channelId) {
+          useMessageStore.getState().updateMessage(channelId, optimisticMessageId, { status: 'sending', queueId })
+        }
 
-      // Call callback if provided
-      if (onMessageSent) {
-        onMessageSent(optimisticMessage)
-      }
-
-      // Reset form
-      setMessage("")
-      setSelectedFiles([])
-      setUploadProgress({})
-      if (textareaRef.current) {
-        textareaRef.current.style.height = "auto"
+        // Reset form only after successful send initiation
+        setMessage("")
+        setSelectedFiles([])
+        setUploadProgress({})
+        if (textareaRef.current) {
+          textareaRef.current.style.height = "auto"
+        }
+      } catch (sendError) {
+        // Mark message as failed in queue
+        if (queueId) {
+          await updateQueueStatus(queueId, 'failed', sendError.message)
+        }
+        
+        // Mark message as failed in Zustand store and keep it visible
+        if (channelId) {
+          useMessageStore.getState().updateMessage(channelId, optimisticMessageId, { 
+            status: 'failed', 
+            error: sendError.message, 
+            queueId 
+          })
+        }
+        
+        throw sendError // Re-throw to be caught by outer catch
       }
     } catch (error) {
       console.error("[MessageInput] Send error:", error)

@@ -366,7 +366,7 @@ function Signup() {
               Create Account
             </CardTitle>
             <CardDescription className="text-center text-sm sm:text-base">
-              Join Chai Tapri and start chatting
+              Join NuBee and start chatting
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 sm:space-y-6 px-4 sm:px-6 pb-4 sm:pb-6">

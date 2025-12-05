@@ -111,7 +111,7 @@ function Home() {
                 backgroundSize: "200% auto",
               }}
             >
-              CHAI-TAPRI
+              NUBEE
             </motion.h1>
             <motion.p
               className="text-base sm:text-lg md:text-xl lg:text-2xl text-muted-foreground font-light"

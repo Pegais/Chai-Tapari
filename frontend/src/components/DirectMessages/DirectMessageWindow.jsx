@@ -2,25 +2,28 @@
  * Direct Message Window Component
  * 
  * Why: Main interface for direct messaging between users
- * How: Combines MessageList and MessageInput for direct messages
- * Impact: Enables private messaging functionality
+ * How: Uses React Query for initial fetch, Zustand for real-time updates
+ * Impact: Fast real-time messaging with persistent data fetching
  */
 
-import React, { useState, useEffect, useRef, useCallback } from "react"
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { useParams, useNavigate } from "react-router-dom"
 import { motion, AnimatePresence } from "framer-motion"
 import { ArrowLeft, User, Paperclip, Send, X } from "lucide-react"
 import MessageList from "../Chat/MessageList"
 import TypingIndicator from "../Chat/TypingIndicator"
-import { useConversationMessages, useSendDirectMessage, useConversations, useConversation, directMessageKeys } from "../../hooks/useDirectMessages"
+import { useConversationMessages, useSendDirectMessage, useConversations, useConversation } from "../../hooks/useDirectMessages"
 import { useAuth } from "../../context/AuthContext"
 import { getSocket } from "../../services/socket"
 import { useUploadMultipleFiles } from "../../hooks/useFileUpload"
 import { useUser } from "../../hooks/useUsers"
-import { useQueryClient } from "@tanstack/react-query"
 import { Avatar, AvatarImage, AvatarFallback } from "../ui/avatar"
 import { Button } from "../ui/button"
 import { extractUrls, createVideoEmbed, isVideoUrl } from "../../utils/videoUtils"
+import { addToQueue, updateQueueStatus, removeFromQueue, getMessageByOptimisticId } from "../../services/indexedDBQueue"
+import { useRestorePendingMessages } from "../../hooks/useMessageQueue"
+import { useDirectMessageStore } from "../../stores/useDirectMessageStore"
+import { useTypingStore } from "../../stores/useTypingStore"
 
 // Debounce utility for typing indicator
 function debounce(func, wait) {
@@ -39,7 +42,6 @@ function DirectMessageWindow() {
   const { conversationId, userId } = useParams()
   const navigate = useNavigate()
   const { user: currentUser } = useAuth()
-  const queryClient = useQueryClient()
   const { data: conversations = [] } = useConversations()
   
   // If userId is provided (new conversation), get or create conversation
@@ -61,9 +63,18 @@ function DirectMessageWindow() {
   }) || recipientUser
   
   const { data: messagesData, isLoading: messagesLoading } = useConversationMessages(activeConversationId)
-  const [typingUsers, setTypingUsers] = useState([])
   const sendDirectMessageMutation = useSendDirectMessage()
   const uploadFilesMutation = useUploadMultipleFiles()
+  
+  // Get Zustand store conversation messages (object, not array)
+  const conversationMessages = useDirectMessageStore((state) => state.messages[activeConversationId])
+  
+  // Get typing users from Zustand
+  const typingUsersSet = useTypingStore((state) => state.typingUsers.get(activeConversationId))
+  
+  const typingUsers = useMemo(() => {
+    return typingUsersSet ? Array.from(typingUsersSet) : []
+  }, [typingUsersSet])
   
   const [messageContent, setMessageContent] = useState("")
   const [selectedFiles, setSelectedFiles] = useState([])
@@ -76,14 +87,74 @@ function DirectMessageWindow() {
   const uploadAbortControllers = useRef({}) // Track abort controllers for each file
   const uploadIntervals = useRef({}) // Track progress intervals for each file
 
-  // Extract messages from infinite query data
-  const messages = messagesData?.pages?.flatMap(page => page.messages || []) || []
+  // Extract initial messages from React Query
+  const initialMessages = useMemo(() => {
+    return messagesData?.pages?.flatMap(page => page.messages || []) || []
+  }, [messagesData])
+
+  // Merge React Query + Zustand messages and sort (in component, NOT in selector)
+  const messages = useMemo(() => {
+    if (!activeConversationId) return []
+    
+    const messageMap = new Map()
+    const deletedIds = new Set()
+    
+    // First pass: collect all deleted IDs from Zustand
+    if (conversationMessages) {
+      Object.values(conversationMessages).forEach(msg => {
+        const msgId = msg._id || msg.id
+        if (msgId && msg.isDeleted) {
+          deletedIds.add(String(msgId))
+        }
+      })
+    }
+    
+    // Add React Query messages (skip deleted ones)
+    initialMessages.forEach(msg => {
+      const msgId = msg._id || msg.id
+      if (msgId && !deletedIds.has(String(msgId))) {
+        messageMap.set(String(msgId), msg)
+      }
+    })
+    
+    // Add/merge Zustand real-time messages (skip deleted ones)
+    if (conversationMessages) {
+      Object.values(conversationMessages).forEach(msg => {
+        const msgId = msg._id || msg.id
+        if (!msgId || msg.isDeleted) return
+        
+        const msgIdStr = String(msgId)
+        const existing = messageMap.get(msgIdStr)
+        
+        if (msg.isOptimistic) {
+          messageMap.set(msgIdStr, msg)
+        } else if (existing) {
+          messageMap.set(msgIdStr, { ...existing, ...msg })
+        } else {
+          messageMap.set(msgIdStr, msg)
+        }
+      })
+    }
+    
+    // Sort by timestamp
+    return Array.from(messageMap.values())
+      .sort((a, b) => {
+        const timeA = new Date(a.timestamp || a.createdAt || 0).getTime()
+        const timeB = new Date(b.timestamp || b.createdAt || 0).getTime()
+        return timeA - timeB
+      })
+  }, [activeConversationId, initialMessages, conversationMessages])
+  
+  // Use ref for conversation ID to avoid stale closures
+  const activeConversationIdRef = useRef(activeConversationId)
+  activeConversationIdRef.current = activeConversationId
+
+  // Restore pending messages from IndexedDB queue on mount
+  useRestorePendingMessages(null, activeConversationId)
 
   /**
    * Set up WebSocket listeners for direct messages
-   * Why: Receive real-time direct message updates
-   * How: Connects to socket and listens for direct message events
-   * Impact: Real-time direct messaging
+   * Uses refs and getState() to avoid infinite re-renders
    */
   useEffect(() => {
     if (!activeConversationId) return
@@ -91,202 +162,191 @@ function DirectMessageWindow() {
     const socket = getSocket()
     if (!socket) return
 
-    // Listen for new direct messages
+    // Get store actions directly (not from hooks)
+    const { mergeMessage, updateMessage, deleteMessage } = useDirectMessageStore.getState()
+    const { addTypingUser, removeTypingUser } = useTypingStore.getState()
+
+    // Join conversation room
+    socket.emit('join-conversation', activeConversationId)
+
+    // Handler for new direct messages
     const handleNewDirectMessage = (data) => {
       const message = data.message || data
+      if (!message) return
+      
       const messageConversationId = typeof message.conversation === 'object' 
         ? message.conversation._id || message.conversation 
         : message.conversation
       
-      if (messageConversationId && activeConversationId && 
-          messageConversationId.toString() === activeConversationId.toString()) {
-        console.log('[DirectMessageWindow] New direct message received:', message)
+      if (messageConversationId?.toString() === activeConversationIdRef.current?.toString()) {
+        // First, find and replace any matching optimistic message
+        const state = useDirectMessageStore.getState()
+        const msgs = state.messages[activeConversationIdRef.current] || {}
+        const senderId = message.sender?._id || message.sender
         
-        // Update cache for instant UI update
-        queryClient.setQueryData(directMessageKeys.conversationMessages(activeConversationId), (oldData) => {
-          if (!oldData) return oldData
+        // Find optimistic message by matching content and sender
+        const optimistic = Object.values(msgs).find(m => {
+          if (!m.isOptimistic) return false
+          if (!String(m._id || m.id || '').startsWith('temp-')) return false
+          if (m.content !== message.content) return false
           
-          // Check if message already exists
-          const messageExists = oldData.pages.some(page => 
-            page.messages.some(msg => {
-              const msgId = msg._id || msg
-              const newMsgId = message._id || message
-              return msgId === newMsgId
-            })
-          )
+          const optSenderId = m.sender?._id || m.sender
+          if (String(optSenderId) !== String(senderId)) return false
           
-          if (messageExists) {
-        // Replace optimistic message with real message
-        return {
-          ...oldData,
-          pages: oldData.pages.map((page) => ({
-            ...page,
-            messages: page.messages.map(msg => {
-              const msgId = msg._id || msg
-              const newMsgId = message._id || message
-              const senderId = msg.sender?._id || msg.sender
-              const newSenderId = message.sender?._id || message.sender
-              // Replace optimistic message with real one
-              if (msg.isOptimistic && msg.content === message.content && senderId === newSenderId) {
-                return message
-              }
-              // Update if same ID
-              if (msgId === newMsgId) {
-                return message
-              }
-              return msg
-            }).filter((msg, index, arr) => {
-              // Remove duplicates by ID
-              const msgId = msg._id
-              return arr.findIndex(m => (m._id || m) === msgId) === index
-            }),
-          })),
-        }
-      }
-          
-      // Add message to last page (newest messages are at the end)
-      const lastPageIndex = oldData.pages.length - 1
-      return {
-        ...oldData,
-        pages: oldData.pages.map((page, index) => {
-          if (index === lastPageIndex) {
-            return {
-              ...page,
-              messages: [...page.messages, message],
-            }
-          }
-          return page
-        }),
-      }
+          // Check timestamp is within 30 seconds
+          const optTime = new Date(m.timestamp || m.createdAt).getTime()
+          const msgTime = new Date(message.timestamp || message.createdAt).getTime()
+          return Math.abs(optTime - msgTime) < 30000
         })
+        
+        if (optimistic) {
+          // Replace optimistic with real message - this removes temp and adds real
+          const { replaceOptimistic } = useDirectMessageStore.getState()
+          const tempId = optimistic._id || optimistic.id
+          replaceOptimistic(activeConversationIdRef.current, tempId, { ...message, status: 'sent' })
+          
+          // Cleanup from IndexedDB queue
+          setTimeout(async () => {
+            try {
+              if (optimistic.queueId) {
+                await removeFromQueue(optimistic.queueId)
+              } else {
+                const queueMsg = await getMessageByOptimisticId(tempId)
+                if (queueMsg) await removeFromQueue(queueMsg.id)
+              }
+            } catch (e) { /* ignore */ }
+          }, 0)
+        } else {
+          // No optimistic found - just merge the new message (from other users)
+          mergeMessage(activeConversationIdRef.current, { ...message, status: message.status || 'sent' })
+        }
       }
     }
 
-    // Listen for typing indicators
+    // Handler for typing
     const handleTyping = (data) => {
-      const messageConversationId = data.conversationId || data.conversation
-      if (messageConversationId && activeConversationId && 
-          messageConversationId.toString() === activeConversationId.toString()) {
-        setTypingUsers((prev) => {
-          if (!prev.includes(data.username)) {
-            return [...prev, data.username]
-          }
-          return prev
-        })
-        
-        // Auto-remove typing indicator after 3 seconds
+      const convId = data.conversationId || data.conversation
+      if (convId?.toString() === activeConversationIdRef.current?.toString() && data.username) {
+        addTypingUser(activeConversationIdRef.current, data.username)
         setTimeout(() => {
-          setTypingUsers((prev) => prev.filter(u => u !== data.username))
+          removeTypingUser(activeConversationIdRef.current, data.username)
         }, 3000)
       }
     }
 
     const handleTypingStop = (data) => {
-      const messageConversationId = data.conversationId || data.conversation
-      if (messageConversationId && activeConversationId && 
-          messageConversationId.toString() === activeConversationId.toString()) {
-        setTypingUsers((prev) => prev.filter(u => u !== data.username))
+      const convId = data.conversationId || data.conversation
+      if (convId?.toString() === activeConversationIdRef.current?.toString() && data.username) {
+        removeTypingUser(activeConversationIdRef.current, data.username)
       }
     }
 
-    // Listen for message status updates
+    // Handler for status updates
     const handleMessageStatusUpdate = (data) => {
       const { messageId, status } = data
-      const { directMessageKeys } = require('../../hooks/useDirectMessages')
-      queryClient.setQueryData(directMessageKeys.conversationMessages(activeConversationId), (oldData) => {
-        if (!oldData) return oldData
-        return {
-          ...oldData,
-          pages: oldData.pages.map(page => ({
-            ...page,
-            messages: page.messages.map(msg => 
-              msg._id === messageId ? { ...msg, status } : msg
-            ),
-          })),
-        }
-      })
+      if (messageId && activeConversationIdRef.current) {
+        updateMessage(activeConversationIdRef.current, messageId, { status })
+      }
     }
 
-    // Listen for message edits in direct messages
+    // Handler for message edits
     const handleMessageEdited = (data) => {
       const message = data.message || data
-      if (!message || !message._id) return
+      if (!message) return
       
       const messageConversationId = typeof message.conversation === 'object' 
         ? message.conversation._id || message.conversation 
         : message.conversation
       
-      // Update if this message belongs to the active conversation
-      if (messageConversationId && activeConversationId && 
-          messageConversationId.toString() === activeConversationId.toString()) {
-        console.log('[DirectMessageWindow] Message edited:', message)
-        queryClient.setQueryData(directMessageKeys.conversationMessages(activeConversationId), (oldData) => {
-          if (!oldData) return oldData
-          return {
-            ...oldData,
-            pages: oldData.pages.map(page => ({
-              ...page,
-              messages: page.messages.map(msg => {
-                // Replace optimistic message or update existing
-                if (msg._id === message._id) {
-                  return message
-                }
-                // Replace optimistic message with same content
-                if (msg.isOptimistic && msg.content === message.content) {
-                  return message
-                }
-                return msg
-              }).filter((msg, index, arr) => {
-                // Remove duplicates by ID
-                const msgId = msg._id
-                return arr.findIndex(m => (m._id || m) === msgId) === index
-              }),
-            })),
-          }
-        })
+      const msgId = message._id || message.id
+      if (messageConversationId?.toString() === activeConversationIdRef.current?.toString() && msgId) {
+        updateMessage(activeConversationIdRef.current, msgId, message)
       }
     }
 
-    // Listen for message deletes in direct messages
+    // Handler for message deletes
     const handleMessageDeleted = (data) => {
       const { messageId, conversationId } = data
-      const targetConversationId = conversationId || activeConversationId
+      if (!messageId) return
       
-      if (!targetConversationId) return
+      const shouldUpdate = !conversationId || 
+        String(conversationId) === String(activeConversationIdRef.current)
       
-      // Check if this is for the active conversation
-      if (targetConversationId.toString() === activeConversationId?.toString()) {
-        queryClient.setQueryData(directMessageKeys.conversationMessages(activeConversationId), (oldData) => {
-          if (!oldData) return oldData
-          return {
-            ...oldData,
-            pages: oldData.pages.map(page => ({
-              ...page,
-              messages: page.messages.map(msg => 
-                msg._id === messageId ? { ...msg, isDeleted: true } : msg
-              ),
-            })),
-          }
-        })
+      if (shouldUpdate && activeConversationIdRef.current) {
+        deleteMessage(activeConversationIdRef.current, messageId)
       }
     }
 
+    // Handler for message sent confirmation
+    const handleDirectMessageSent = (data) => {
+      const message = data.message || data
+      if (!message?._id) return
+      
+      const messageConversationId = typeof message.conversation === 'object' 
+        ? message.conversation._id || message.conversation 
+        : message.conversation
+      
+      if (messageConversationId?.toString() === activeConversationIdRef.current?.toString()) {
+        // Find and replace optimistic message with the confirmed one
+        const state = useDirectMessageStore.getState()
+        const msgs = state.messages[activeConversationIdRef.current] || {}
+        const senderId = message.sender?._id || message.sender
+        
+        // Find optimistic message by matching content and sender
+        const optimistic = Object.values(msgs).find(m => {
+          if (!m.isOptimistic) return false
+          if (!String(m._id || m.id || '').startsWith('temp-')) return false
+          if (m.content !== message.content) return false
+          
+          const optSenderId = m.sender?._id || m.sender
+          return String(optSenderId) === String(senderId)
+        })
+        
+        if (optimistic) {
+          // Replace optimistic with confirmed message
+          const { replaceOptimistic } = useDirectMessageStore.getState()
+          const tempId = optimistic._id || optimistic.id
+          replaceOptimistic(activeConversationIdRef.current, tempId, { ...message, status: 'sent' })
+          
+          // Cleanup from IndexedDB queue
+          setTimeout(async () => {
+            try {
+              if (optimistic.queueId) {
+                await removeFromQueue(optimistic.queueId)
+              } else {
+                const queueMsg = await getMessageByOptimisticId(tempId)
+                if (queueMsg) await removeFromQueue(queueMsg.id)
+              }
+            } catch (e) { /* ignore */ }
+          }, 0)
+        } else {
+          // No optimistic found - just merge (shouldn't happen normally)
+          mergeMessage(activeConversationIdRef.current, { ...message, status: 'sent' })
+        }
+      }
+    }
+
+    // Attach listeners
     socket.on('new-direct-message', handleNewDirectMessage)
+    socket.on('direct-message-sent', handleDirectMessageSent)
     socket.on('direct-message-typing', handleTyping)
     socket.on('direct-message-typing-stop', handleTypingStop)
     socket.on('message-status-update', handleMessageStatusUpdate)
     socket.on('message-edited', handleMessageEdited)
     socket.on('message-deleted', handleMessageDeleted)
 
+    // Cleanup
     return () => {
       socket.off('new-direct-message', handleNewDirectMessage)
+      socket.off('direct-message-sent', handleDirectMessageSent)
       socket.off('direct-message-typing', handleTyping)
       socket.off('direct-message-typing-stop', handleTypingStop)
       socket.off('message-status-update', handleMessageStatusUpdate)
       socket.off('message-edited', handleMessageEdited)
       socket.off('message-deleted', handleMessageDeleted)
+      socket.emit('leave-conversation', activeConversationId)
     }
-  }, [activeConversationId, queryClient, recipient, userId])
+  }, [activeConversationId]) // Only activeConversationId - no function dependencies
 
   const handleFileSelect = (e) => {
     const files = Array.from(e.target.files)
@@ -419,11 +479,10 @@ function DirectMessageWindow() {
 
       // Don't show error if it was cancelled
       if (error.name === 'AbortError' || abortController.signal.aborted) {
-        console.log("[DirectMessageWindow] File upload cancelled:", file.name)
         return null
       }
 
-      console.error("[DirectMessageWindow] File upload error:", error)
+      // File upload error - error will be shown via UI state
       setUploadProgress((prev) => {
         const newProgress = { ...prev }
         delete newProgress[file.id]
@@ -495,24 +554,9 @@ function DirectMessageWindow() {
           isOptimistic: true,
         }
 
-        // Optimistically update cache
+        // Optimistically add to Zustand store
         if (activeConversationId) {
-          queryClient.setQueryData(directMessageKeys.conversationMessages(activeConversationId), (oldData) => {
-            if (!oldData) return oldData
-            const lastPageIndex = oldData.pages.length - 1
-            return {
-              ...oldData,
-              pages: oldData.pages.map((page, index) => {
-                if (index === lastPageIndex) {
-                  return {
-                    ...page,
-                    messages: [...page.messages, optimisticTextMessage],
-                  }
-                }
-                return page
-              }),
-            }
-          })
+          useDirectMessageStore.getState().mergeMessage(activeConversationId, optimisticTextMessage)
         }
 
         // Send text message immediately
@@ -559,45 +603,7 @@ function DirectMessageWindow() {
         attachments = await Promise.all(selectedFiles.map(uploadFile))
       }
 
-      // Create optimistic message
-      const optimisticMessage = {
-        _id: `temp-${Date.now()}`,
-        sender: {
-          _id: currentUser._id,
-          username: currentUser.username,
-          email: currentUser.email,
-          avatar: currentUser.avatar,
-        },
-        conversation: activeConversationId,
-        content: textContent || "",
-        messageType: attachments.length > 0 ? "file" : (videoEmbed ? "video" : "text"),
-        attachments: attachments.length > 0 ? attachments : undefined,
-        videoEmbed: videoEmbed || undefined,
-        timestamp: new Date(),
-        createdAt: new Date(),
-        isOptimistic: true,
-      }
-
-      // Optimistically update cache
-      if (activeConversationId) {
-        queryClient.setQueryData(directMessageKeys.conversationMessages(activeConversationId), (oldData) => {
-          if (!oldData) return oldData
-          const lastPageIndex = oldData.pages.length - 1
-          return {
-            ...oldData,
-            pages: oldData.pages.map((page, index) => {
-              if (index === lastPageIndex) {
-                return {
-                  ...page,
-                  messages: [...page.messages, optimisticMessage],
-                }
-              }
-              return page
-            }),
-          }
-        })
-      }
-
+      // Prepare message data
       const messageData = {
         recipientId: targetRecipientId,
         content: textContent || "",
@@ -606,17 +612,112 @@ function DirectMessageWindow() {
         videoEmbed: videoEmbed || undefined,
       }
 
-      if (socket) {
-        socket.emit('send-direct-message', messageData)
-      } else {
-        await sendDirectMessageMutation.mutateAsync(messageData)
+      // Create optimistic message with unique ID
+      const optimisticMessageId = `temp-${Date.now()}-${Math.random()}`
+      
+      // Add message to IndexedDB queue BEFORE sending
+      let queueId = null
+      try {
+        queueId = await addToQueue({
+          recipientId: targetRecipientId,
+          conversationId: activeConversationId,
+          sender: {
+            _id: currentUser._id,
+            username: currentUser.username,
+            email: currentUser.email,
+            avatar: currentUser.avatar,
+          },
+          ...messageData,
+        }, 'direct', optimisticMessageId)
+      } catch (queueError) {
+        console.error('[DirectMessageWindow] Error adding to queue:', queueError)
       }
 
-      setMessageContent("")
-      setSelectedFiles([])
-      setUploadProgress({})
-      if (textareaRef.current) {
-        textareaRef.current.style.height = "auto"
+      const optimisticMessage = {
+        _id: optimisticMessageId,
+        sender: {
+          _id: currentUser._id,
+          username: currentUser.username,
+          email: currentUser.email,
+          avatar: currentUser.avatar,
+        },
+        conversation: activeConversationId,
+        content: textContent || "",
+        messageType: messageData.messageType,
+        attachments: attachments.length > 0 ? attachments : undefined,
+        videoEmbed: videoEmbed || undefined,
+        timestamp: new Date(),
+        createdAt: new Date(),
+        isOptimistic: true,
+        status: 'pending',
+        queueId: queueId,
+      }
+
+      // Optimistically add to Zustand store
+      if (activeConversationId) {
+        useDirectMessageStore.getState().mergeMessage(activeConversationId, optimisticMessage)
+      }
+
+      // Send message with timeout and error handling
+      const sendPromise = new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error('Message send timeout. Please check your connection.'))
+        }, 10000)
+
+        if (socket && socket.connected) {
+          try {
+            socket.emit('send-direct-message', messageData)
+            setTimeout(() => {
+              clearTimeout(timeout)
+              resolve()
+            }, 1000)
+          } catch (error) {
+            clearTimeout(timeout)
+            reject(error)
+          }
+        } else {
+          clearTimeout(timeout)
+          sendDirectMessageMutation.mutateAsync(messageData)
+            .then(() => resolve())
+            .catch((error) => reject(error))
+        }
+      })
+
+      try {
+        await sendPromise
+        
+        // Update queue status
+        if (queueId) {
+          await updateQueueStatus(queueId, 'sending')
+        }
+
+        // Update message status in Zustand store
+        if (activeConversationId) {
+          useDirectMessageStore.getState().updateMessage(activeConversationId, optimisticMessageId, { status: 'sending', queueId })
+        }
+
+        setMessageContent("")
+        setSelectedFiles([])
+        setUploadProgress({})
+        if (textareaRef.current) {
+          textareaRef.current.style.height = "auto"
+        }
+      } catch (sendError) {
+        // Mark as failed in queue
+        if (queueId) {
+          await updateQueueStatus(queueId, 'failed', sendError.message)
+        }
+
+        // Mark as failed in Zustand store
+        if (activeConversationId) {
+          useDirectMessageStore.getState().updateMessage(activeConversationId, optimisticMessageId, { 
+            status: 'failed', 
+            error: sendError.message, 
+            queueId 
+          })
+        }
+        
+        throw sendError
       }
     } catch (error) {
       console.error("[DirectMessageWindow] Send error:", error)
@@ -772,6 +873,19 @@ function DirectMessageWindow() {
               </p>
             </div>
           </div>
+          
+          {/* Privacy Notice */}
+          <motion.div
+            className="mt-2 p-2 bg-primary/10 border border-primary/20 rounded-md"
+            initial={{ opacity: 0, y: -5 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 }}
+          >
+            <p className="text-xs text-muted-foreground flex items-center gap-2">
+              <span className="text-primary">🔒</span>
+              <span>For privacy, your messages will be automatically deleted after 8 hours.</span>
+            </p>
+          </motion.div>
         </div>
       </motion.div>
 

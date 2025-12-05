@@ -73,9 +73,12 @@ const socketHandler = (io, redisClient) => {
     logger.info(`User connected: ${user.username} (${userId})`)
 
     try {
-      // Add socket ID to user
+      // Add socket ID to user (use $addToSet to prevent duplicates)
+      // Why: Prevent duplicate socket IDs if connection is established multiple times
+      // How: Uses MongoDB $addToSet which only adds if value doesn't exist
+      // Impact: Ensures each socket ID appears only once, prevents connection leaks
       await User.findByIdAndUpdate(userId, {
-        $push: { socketIds: socket.id },
+        $addToSet: { socketIds: socket.id }, // Use $addToSet instead of $push to prevent duplicates
         $set: { isOnline: true },
       })
 
@@ -111,8 +114,10 @@ const socketHandler = (io, redisClient) => {
             return socket.emit('error', { message: 'Channel not found' })
           }
 
-          if (!channel.isMember(userId)) {
-            return socket.emit('error', { message: 'Not a member of this channel' })
+          // Allow joining socket room for public channels even if not a member
+          // Private channels still require membership
+          if (channel.isPrivate && !channel.isMember(userId)) {
+            return socket.emit('error', { message: 'Not a member of this private channel' })
           }
 
           socket.join(`channel:${channelId}`)
@@ -207,6 +212,19 @@ const socketHandler = (io, redisClient) => {
       socket.on('message-read', async (data) => {
         try {
           const { messageId } = data
+          
+          // Skip optimistic/temporary message IDs (they start with "temp-")
+          if (!messageId || typeof messageId !== 'string' || messageId.startsWith('temp-')) {
+            return // Skip optimistic messages that haven't been saved yet
+          }
+          
+          // Validate that messageId is a valid MongoDB ObjectId
+          const mongoose = require('mongoose')
+          if (!mongoose.Types.ObjectId.isValid(messageId)) {
+            logger.warn(`Invalid messageId format for message-read: ${messageId}`)
+            return
+          }
+          
           const message = await Message.findById(messageId)
           
           if (!message) return
@@ -222,12 +240,28 @@ const socketHandler = (io, redisClient) => {
               readAt: new Date(),
             })
             
-            // If all recipients have read, update status to 'read'
-            const channel = await Channel.findById(message.channel)
-            if (channel) {
-              const memberCount = channel.members.length
-              if (message.readBy.length >= memberCount - 1) { // -1 to exclude sender
-                message.status = 'read'
+            // Update status based on message type (channel or direct message)
+            if (message.channel) {
+              // Channel message: all members (except sender) must read
+              const channel = await Channel.findById(message.channel)
+              if (channel) {
+                const memberCount = channel.members.length
+                if (message.readBy.length >= memberCount - 1) { // -1 to exclude sender
+                  message.status = 'read'
+                }
+              }
+            } else if (message.conversation) {
+              // Direct message: other participant must read
+              const Conversation = require('../models/Conversation')
+              const conversation = await Conversation.findById(message.conversation)
+              if (conversation && conversation.participants.length === 2) {
+                // For direct messages, if the other participant has read, mark as read
+                const otherParticipant = conversation.participants.find(
+                  p => p.toString() !== message.sender.toString()
+                )
+                if (otherParticipant && message.readBy.some(r => r.userId.toString() === otherParticipant.toString())) {
+                  message.status = 'read'
+                }
               }
             }
             
@@ -310,17 +344,19 @@ const socketHandler = (io, redisClient) => {
             io.to(`channel:${message.channel}`).emit('message-edited', { message })
             logger.info(`Message edited in channel ${message.channel} by ${user.username}`)
           } else if (message.conversation) {
-            // Direct message - broadcast to conversation participants
+            // Direct message - broadcast to conversation room (more efficient)
+            io.to(`conversation:${message.conversation}`).emit('message-edited', { message })
+            
+            // Fallback: also send via user rooms for reliability
             const Conversation = require('../models/Conversation')
             const conversation = await Conversation.findById(message.conversation)
             if (conversation) {
-              // Send to all participants
               conversation.participants.forEach(participantId => {
                 const participantIdStr = participantId.toString()
                 io.to(`user:${participantIdStr}`).emit('message-edited', { message })
               })
-              logger.info(`Direct message edited in conversation ${message.conversation} by ${user.username}`)
             }
+            logger.info(`Direct message edited in conversation ${message.conversation} by ${user.username}`)
           }
         } catch (error) {
           logger.error('Error editing message:', error)
@@ -334,35 +370,97 @@ const socketHandler = (io, redisClient) => {
           const { messageId } = messageData
 
           const message = await messageService.deleteMessage(messageId, userId)
-          await message.populate('conversation', 'participants')
-
+          
+          // Ensure messageId is a string for consistent handling
+          const messageIdStr = String(message._id || messageId)
+          
           // Broadcast to channel or conversation
           if (message.channel) {
             // Channel message - broadcast to channel room
-            io.to(`channel:${message.channel}`).emit('message-deleted', { 
-              messageId,
-              channelId: message.channel 
+            const channelId = typeof message.channel === 'object' 
+              ? String(message.channel._id || message.channel)
+              : String(message.channel)
+            
+            logger.info(`Broadcasting deletion for channel ${channelId}, messageId: ${messageIdStr}`)
+            
+            io.to(`channel:${channelId}`).emit('message-deleted', { 
+              messageId: messageIdStr,
+              channelId: channelId
             })
-            logger.info(`Message deleted in channel ${message.channel} by ${user.username}`)
+            logger.info(`Message deleted in channel ${channelId} by ${user.username}`)
           } else if (message.conversation) {
-            // Direct message - broadcast to conversation participants
+            // Direct message - get conversation ID (handle both object and string)
+            const conversationId = typeof message.conversation === 'object' 
+              ? String(message.conversation._id || message.conversation)
+              : String(message.conversation)
+            
+            logger.info(`Broadcasting deletion for conversation ${conversationId}, messageId: ${messageIdStr}`)
+            
+            // Broadcast to conversation room (more efficient)
+            io.to(`conversation:${conversationId}`).emit('message-deleted', { 
+              messageId: messageIdStr,
+              conversationId: conversationId
+            })
+            
+            // Fallback: also send via user rooms for reliability
             const Conversation = require('../models/Conversation')
-            const conversation = await Conversation.findById(message.conversation)
-            if (conversation) {
-              // Send to all participants
+            const conversation = await Conversation.findById(conversationId)
+            if (conversation && conversation.participants) {
               conversation.participants.forEach(participantId => {
-                const participantIdStr = participantId.toString()
+                const participantIdStr = String(participantId)
                 io.to(`user:${participantIdStr}`).emit('message-deleted', { 
-                  messageId,
-                  conversationId: message.conversation 
+                  messageId: messageIdStr,
+                  conversationId: conversationId
                 })
               })
-              logger.info(`Direct message deleted in conversation ${message.conversation} by ${user.username}`)
+              logger.info(`Sent deletion event to ${conversation.participants.length} participants via user rooms`)
             }
+            logger.info(`Direct message deleted in conversation ${conversationId} by ${user.username}, messageId: ${messageIdStr}`)
           }
         } catch (error) {
           logger.error('Error deleting message:', error)
           socket.emit('error', { message: 'Failed to delete message' })
+        }
+      })
+
+      // Handle join conversation (for direct messages)
+      socket.on('join-conversation', async (conversationId) => {
+        try {
+          const Conversation = require('../models/Conversation')
+          const conversation = await Conversation.findById(conversationId)
+          
+          if (!conversation) {
+            return socket.emit('error', { message: 'Conversation not found' })
+          }
+          
+          // Check if user is a participant
+          const isParticipant = conversation.participants.some(
+            participantId => participantId.toString() === userId
+          )
+          
+          if (!isParticipant) {
+            return socket.emit('error', { message: 'Not a participant in this conversation' })
+          }
+          
+          // Join conversation room for efficient broadcasting
+          socket.join(`conversation:${conversationId}`)
+          socket.emit('conversation:joined', { conversationId })
+          
+          logger.info(`User ${user.username} joined conversation ${conversationId}`)
+        } catch (error) {
+          logger.error('Error joining conversation:', error)
+          socket.emit('error', { message: 'Failed to join conversation' })
+        }
+      })
+
+      // Handle leave conversation
+      socket.on('leave-conversation', async (conversationId) => {
+        try {
+          socket.leave(`conversation:${conversationId}`)
+          socket.emit('conversation:left', { conversationId })
+          logger.info(`User ${user.username} left conversation ${conversationId}`)
+        } catch (error) {
+          logger.error('Error leaving conversation:', error)
         }
       })
 
@@ -387,10 +485,21 @@ const socketHandler = (io, redisClient) => {
           message.status = 'sent'
           await message.save()
 
-          // Send to recipient
+          // Get conversation ID for room-based broadcasting
+          const Conversation = require('../models/Conversation')
+          const conversation = await Conversation.findOne({
+            participants: { $all: [userId, recipientId] }
+          })
+          
+          // Send to recipient via user room (always works)
           io.to(`user:${recipientId}`).emit('new-direct-message', { message })
+          
+          // Also broadcast to conversation room if exists (more efficient)
+          if (conversation) {
+            io.to(`conversation:${conversation._id}`).emit('new-direct-message', { message })
+          }
 
-          // Also send back to sender for confirmation
+          // Send confirmation back to sender
           socket.emit('direct-message-sent', { message })
 
           // Update status to 'delivered' after a short delay

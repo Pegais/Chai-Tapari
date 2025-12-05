@@ -1,12 +1,12 @@
 /**
  * Message Cleanup Utility
  * 
- * Why: Automatically delete messages older than 48 hours for privacy
+ * Why: Automatically delete messages older than 8 hours for privacy
  * How: Scheduled job that runs periodically to delete old messages, conversations, Redis data, and S3 files
  * Impact: Ensures user privacy by automatically removing old conversations and related data
  * 
  * What Gets Cleaned:
- * 1. Messages (both channel and direct messages) older than 48 hours
+ * 1. Messages (both channel and direct messages) older than 8 hours
  * 2. Empty conversations (conversations with no messages)
  * 3. Redis presence data (stale online users, channel presence, typing indicators)
  * 4. Orphaned S3 file attachments (files no longer referenced in messages)
@@ -29,13 +29,13 @@ const { deleteFile } = require('../services/fileUploadService')
 const logger = require('./logger')
 
 /**
- * Delete messages older than 48 hours
+ * Delete messages older than 8 hours
  * Why: Maintain user privacy by removing old conversations
- * How: Finds and deletes messages (both channel and direct messages) where timestamp is older than 48 hours
+ * How: Finds and deletes messages (both channel and direct messages) where timestamp is older than 8 hours
  * Impact: Old messages are permanently removed from database
  * 
  * Flow:
- * 1. Calculate cutoff time (48 hours ago)
+ * 1. Calculate cutoff time (8 hours ago)
  * 2. Find all messages older than cutoff (both channel and conversation messages)
  * 3. Extract S3 keys from attachments before deletion
  * 4. Delete messages from database
@@ -43,11 +43,11 @@ const logger = require('./logger')
  */
 const deleteOldMessages = async () => {
   try {
-    // Calculate cutoff time (48 hours ago)
+    // Calculate cutoff time (8 hours ago)
     const cutoffTime = new Date()
-    cutoffTime.setHours(cutoffTime.getHours() - 48)
+    cutoffTime.setHours(cutoffTime.getHours() - 8)
 
-    // Find messages older than 48 hours and extract S3 keys before deletion
+    // Find messages older than 8 hours and extract S3 keys before deletion
     const oldMessages = await Message.find({
       timestamp: { $lt: cutoffTime },
     }).select('attachments')
@@ -91,13 +91,13 @@ const deleteOldMessages = async () => {
       }
     })
 
-    // Delete messages older than 48 hours (both channel and conversation messages)
+    // Delete messages older than 8 hours (both channel and conversation messages)
     const result = await Message.deleteMany({
       timestamp: { $lt: cutoffTime },
     })
 
     if (result.deletedCount > 0) {
-      logger.info(`[Message Cleanup] Deleted ${result.deletedCount} messages older than 48 hours`)
+      logger.info(`[Message Cleanup] Deleted ${result.deletedCount} messages older than 8 hours`)
       
       // Delete associated S3 files
       if (s3KeysToDelete.length > 0) {
@@ -343,12 +343,12 @@ const runCompleteCleanup = async () => {
  * Start message cleanup scheduler
  * Why: Automatically run cleanup job at regular intervals
  * How: Sets up interval to run complete cleanup every hour
- * Impact: Messages, conversations, Redis data, and S3 files are automatically cleaned after 48 hours
+ * Impact: Messages, conversations, Redis data, and S3 files are automatically cleaned after 8 hours
  * 
  * Schedule: Runs every hour to check for data to delete
  * 
  * What Gets Cleaned:
- * 1. Messages older than 48 hours (both channel and direct messages)
+ * 1. Messages older than 8 hours (both channel and direct messages)
  * 2. Empty conversations (conversations with no messages)
  * 3. Redis presence data (stale online users, channel presence, typing indicators)
  * 4. Orphaned S3 file attachments
@@ -370,7 +370,7 @@ const startCleanupScheduler = () => {
     })
   }, 60 * 60 * 1000) // 1 hour in milliseconds
 
-  logger.info('[Message Cleanup] Scheduler started - will clean up messages, conversations, Redis data, and S3 files older than 48 hours every hour')
+  logger.info('[Message Cleanup] Scheduler started - will clean up messages, conversations, Redis data, and S3 files older than 8 hours every hour')
   logger.info('[Message Cleanup] Note: Users and channels are NOT deleted (preserved)')
 
   // Return cleanup function to stop scheduler if needed

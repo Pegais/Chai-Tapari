@@ -2,213 +2,224 @@
  * Chat Window Component
  * 
  * Why: Main chat interface displaying messages and input
- * How: Combines MessageList and MessageInput in a scrollable container
- * Impact: Primary user interface for messaging functionality
+ * How: Uses React Query for initial fetch, Zustand for real-time updates
+ * Impact: Fast real-time messaging with persistent data fetching
  */
 
-import React, { useState, useEffect } from "react"
+import React, { useEffect, useMemo, useRef } from "react"
 import { useParams } from "react-router-dom"
 import { motion } from "framer-motion"
 import MessageList from "./MessageList"
 import MessageInput from "./MessageInput"
 import TypingIndicator from "./TypingIndicator"
 import { useChannel } from "../../hooks/useChannels"
-import { useMessages, messageKeys } from "../../hooks/useMessages"
-import { useAuth } from "../../context/AuthContext"
+import { useMessages } from "../../hooks/useMessages"
 import { getSocket } from "../../services/socket"
-import { useQueryClient } from "@tanstack/react-query"
+import { useRestorePendingMessages } from "../../hooks/useMessageQueue"
+import { removeFromQueue, getMessageByOptimisticId } from "../../services/indexedDBQueue"
+import { useMessageStore } from "../../stores/useMessageStore"
+import { useTypingStore } from "../../stores/useTypingStore"
 
 function ChatWindow() {
   const { channelId } = useParams()
-  const { user } = useAuth()
-  const queryClient = useQueryClient()
   const { data: channel, isLoading: channelLoading, error: channelError } = useChannel(channelId)
   const { data: messagesData, isLoading: messagesLoading } = useMessages(channelId)
-  const [typingUsers, setTypingUsers] = useState([])
+  
+  // Get Zustand store channel messages (object, not array)
+  const channelMessages = useMessageStore((state) => state.messages[channelId])
+  
+  // Get typing users from Zustand
+  const typingUsersSet = useTypingStore((state) => state.typingUsers.get(channelId))
+  
+  const typingUsers = useMemo(() => {
+    if (!typingUsersSet) return []
+    return Array.from(typingUsersSet)
+  }, [typingUsersSet])
 
-  // Extract messages from infinite query data
-  // Why: Flatten paginated messages into single array
-  // How: Combines all pages of messages
-  // Impact: All messages available for display
-  const messages = messagesData?.pages?.flatMap(page => page.messages || []) || []
+  // Extract initial messages from React Query
+  const initialMessages = useMemo(() => {
+    return messagesData?.pages?.flatMap(page => page.messages || []) || []
+  }, [messagesData])
 
-  /**
-   * Note: Public channels don't require explicit joining
-   * Why: Prevent adding user IDs to members array for every viewer
-   * How: Users can view and interact with public channels without being in members list
-   * Impact: Members array only tracks active participants, not all viewers
-   * 
-   * Users will be added to members automatically when they:
-   * - Send their first message in the channel
-   * - Explicitly join via join button (if implemented)
-   */
+  // Restore pending messages from IndexedDB queue on mount
+  useRestorePendingMessages(channelId, null)
 
-  /**
-   * Set up WebSocket listeners
-   * Why: Receive real-time updates for messages and typing
-   * How: Connects to socket and listens for events
-   * Impact: Real-time messaging and presence updates
-   */
+  // Merge React Query + Zustand messages and sort (in component, NOT in selector)
+  const messages = useMemo(() => {
+    if (!channelId) return []
+    
+    const messageMap = new Map()
+    const deletedIds = new Set()
+    
+    // First pass: collect all deleted IDs from Zustand
+    if (channelMessages) {
+      Object.values(channelMessages).forEach(msg => {
+        const msgId = msg._id || msg.id
+        if (msgId && msg.isDeleted) {
+          deletedIds.add(String(msgId))
+        }
+      })
+    }
+    
+    // Add React Query messages (skip deleted ones)
+    initialMessages.forEach(msg => {
+      const msgId = msg._id || msg.id
+      if (msgId && !deletedIds.has(String(msgId))) {
+        messageMap.set(String(msgId), msg)
+      }
+    })
+    
+    // Add/merge Zustand real-time messages (skip deleted ones)
+    if (channelMessages) {
+      Object.values(channelMessages).forEach(msg => {
+        const msgId = msg._id || msg.id
+        if (!msgId || msg.isDeleted) return
+        
+        const msgIdStr = String(msgId)
+        const existing = messageMap.get(msgIdStr)
+        
+        if (msg.isOptimistic) {
+          messageMap.set(msgIdStr, msg)
+        } else if (existing) {
+          messageMap.set(msgIdStr, { ...existing, ...msg })
+        } else {
+          messageMap.set(msgIdStr, msg)
+        }
+      })
+    }
+    
+    // Sort by timestamp
+    return Array.from(messageMap.values())
+      .sort((a, b) => {
+        const timeA = new Date(a.timestamp || a.createdAt || 0).getTime()
+        const timeB = new Date(b.timestamp || b.createdAt || 0).getTime()
+        return timeA - timeB
+      })
+  }, [channelId, initialMessages, channelMessages])
+
+  // Use refs for socket handlers to avoid recreating them
+  const channelIdRef = useRef(channelId)
+  channelIdRef.current = channelId
+
+  // Socket setup - runs only when channelId changes
   useEffect(() => {
     if (!channelId) return
 
     const socket = getSocket()
     if (!socket) return
 
+    // Get store actions directly (not from hooks)
+    const { mergeMessage, updateMessage, deleteMessage } = useMessageStore.getState()
+    const { addTypingUser, removeTypingUser } = useTypingStore.getState()
+
     // Join channel room
     socket.emit('join-channel', channelId)
 
-    // Listen for new messages
+    // Handler for new messages
     const handleNewMessage = (data) => {
-      // Update React Query cache immediately for instant UI update
       const message = data.message || data
+      if (!message) return
       
-      if (message) {
-        const messageChannelId = typeof message.channel === 'object' 
-          ? message.channel._id || message.channel 
-          : message.channel
-        
-        if (messageChannelId === channelId) {
-          console.log('[ChatWindow] New message received:', message)
-          
-          // Optimistically update the cache
-          queryClient.setQueryData(messageKeys.list(channelId), (oldData) => {
-            if (!oldData) return oldData
-            
-            // Check if message already exists (prevent duplicates)
-            const messageExists = oldData.pages.some(page => 
-              page.messages.some(msg => {
-                const msgId = msg._id || msg
-                const newMsgId = message._id || message
-                const senderId = msg.sender?._id || msg.sender
-                const newSenderId = message.sender?._id || message.sender
-                return msgId === newMsgId || (msg.isOptimistic && msg.content === message.content && senderId === newSenderId)
-              })
-            )
-            
-            if (messageExists) {
-              // Replace optimistic message with real message
-              return {
-                ...oldData,
-                pages: oldData.pages.map((page) => ({
-                  ...page,
-                  messages: page.messages.map(msg => {
-                    const senderId = msg.sender?._id || msg.sender
-                    const newSenderId = message.sender?._id || message.sender
-                    // Replace optimistic message with real one
-                    if (msg.isOptimistic && msg.content === message.content && senderId === newSenderId) {
-                      return message
-                    }
-                    // Update if same ID
-                    if (msg._id === message._id) {
-                      return message
-                    }
-                    return msg
-                  }).filter((msg, index, arr) => {
-                    // Remove duplicates by ID
-                    const msgId = msg._id
-                    return arr.findIndex(m => (m._id || m) === msgId) === index
-                  }),
-                })),
-              }
-            }
-            
-            // Add message to the last page (newest messages are at the end)
-            const lastPageIndex = oldData.pages.length - 1
-            return {
-              ...oldData,
-              pages: oldData.pages.map((page, index) => {
-                if (index === lastPageIndex) {
-                  // Add to end of last page (newest messages)
-                  return {
-                    ...page,
-                    messages: [...page.messages, message],
-                  }
-                }
-                return page
-              }),
-            }
-          })
-        }
-      }
-    }
-
-    // Listen for typing indicators
-    const handleTyping = (data) => {
-      if (data.channelId === channelId) {
-        setTypingUsers((prev) => {
-          if (!prev.includes(data.username)) {
-            return [...prev, data.username]
-          }
-          return prev
-        })
-      }
-    }
-
-    const handleTypingStop = (data) => {
-      if (data.channelId === channelId) {
-        setTypingUsers((prev) => prev.filter(user => user !== data.username))
-      }
-    }
-
-    // Listen for message edits and deletes
-    const handleMessageEdited = (data) => {
-      const message = data.message || data
       const messageChannelId = typeof message.channel === 'object' 
         ? message.channel._id || message.channel 
         : message.channel
       
-      if (messageChannelId === channelId) {
-        console.log('[ChatWindow] Message edited:', message)
-        queryClient.setQueryData(messageKeys.list(channelId), (oldData) => {
-          if (!oldData) return oldData
-          return {
-            ...oldData,
-            pages: oldData.pages.map(page => ({
-              ...page,
-              messages: page.messages.map(msg => 
-                msg._id === message._id ? message : msg
-              ),
-            })),
-          }
+      if (messageChannelId === channelIdRef.current) {
+        // First, find and replace any matching optimistic message
+        const state = useMessageStore.getState()
+        const msgs = state.messages[channelIdRef.current] || {}
+        const senderId = message.sender?._id || message.sender
+        
+        // Find optimistic message by matching content and sender
+        const optimistic = Object.values(msgs).find(m => {
+          if (!m.isOptimistic) return false
+          if (!String(m._id || m.id || '').startsWith('temp-')) return false
+          if (m.content !== message.content) return false
+          
+          const optSenderId = m.sender?._id || m.sender
+          if (String(optSenderId) !== String(senderId)) return false
+          
+          // Check timestamp is within 30 seconds
+          const optTime = new Date(m.timestamp || m.createdAt).getTime()
+          const msgTime = new Date(message.timestamp || message.createdAt).getTime()
+          return Math.abs(optTime - msgTime) < 30000
         })
+        
+        if (optimistic) {
+          // Replace optimistic with real message - this removes temp and adds real
+          const { replaceOptimistic } = useMessageStore.getState()
+          const tempId = optimistic._id || optimistic.id
+          replaceOptimistic(channelIdRef.current, tempId, { ...message, status: 'sent' })
+          
+          // Cleanup from IndexedDB queue
+          setTimeout(async () => {
+            try {
+              if (optimistic.queueId) {
+                await removeFromQueue(optimistic.queueId)
+              } else {
+                const queueMsg = await getMessageByOptimisticId(tempId)
+                if (queueMsg) await removeFromQueue(queueMsg.id)
+              }
+            } catch (e) { /* ignore */ }
+          }, 0)
+        } else {
+          // No optimistic found - just merge the new message (from other users)
+          mergeMessage(channelIdRef.current, { ...message, status: message.status || 'sent' })
+        }
       }
     }
 
-    const handleMessageDeleted = (data) => {
-      const { messageId } = data
-      console.log('[ChatWindow] Message deleted:', messageId)
-      queryClient.setQueryData(messageKeys.list(channelId), (oldData) => {
-        if (!oldData) return oldData
-        return {
-          ...oldData,
-          pages: oldData.pages.map(page => ({
-            ...page,
-            messages: page.messages.map(msg => 
-              msg._id === messageId ? { ...msg, isDeleted: true } : msg
-            ),
-          })),
-        }
-      })
+    // Handler for typing
+    const handleTyping = (data) => {
+      if (data.channelId === channelIdRef.current && data.username) {
+        addTypingUser(channelIdRef.current, data.username)
+        setTimeout(() => {
+          removeTypingUser(channelIdRef.current, data.username)
+        }, 3000)
+      }
     }
 
-    // Listen for message status updates
+    const handleTypingStop = (data) => {
+      if (data.channelId === channelIdRef.current && data.username) {
+        removeTypingUser(channelIdRef.current, data.username)
+      }
+    }
+
+    // Handler for message edits
+    const handleMessageEdited = (data) => {
+      const message = data.message || data
+      if (!message) return
+      
+      const messageChannelId = typeof message.channel === 'object' 
+        ? message.channel._id || message.channel 
+        : message.channel
+      
+      const msgId = message._id || message.id
+      if (messageChannelId === channelIdRef.current && msgId) {
+        updateMessage(channelIdRef.current, msgId, message)
+      }
+    }
+
+    // Handler for message deletes
+    const handleMessageDeleted = (data) => {
+      const { messageId, channelId: eventChannelId } = data
+      if (!messageId) return
+      
+      const shouldUpdate = !eventChannelId || String(eventChannelId) === String(channelIdRef.current)
+      if (shouldUpdate) {
+        deleteMessage(channelIdRef.current, messageId)
+      }
+    }
+
+    // Handler for status updates
     const handleMessageStatusUpdate = (data) => {
       const { messageId, status } = data
-      queryClient.setQueryData(messageKeys.list(channelId), (oldData) => {
-        if (!oldData) return oldData
-        return {
-          ...oldData,
-          pages: oldData.pages.map(page => ({
-            ...page,
-            messages: page.messages.map(msg => 
-              msg._id === messageId ? { ...msg, status } : msg
-            ),
-          })),
-        }
-      })
+      if (messageId) {
+        updateMessage(channelIdRef.current, messageId, { status })
+      }
     }
 
+    // Attach listeners
     socket.on('new-message', handleNewMessage)
     socket.on('user-typing', handleTyping)
     socket.on('user-stopped-typing', handleTypingStop)
@@ -216,7 +227,7 @@ function ChatWindow() {
     socket.on('message-deleted', handleMessageDeleted)
     socket.on('message-status-update', handleMessageStatusUpdate)
 
-    // Cleanup on unmount
+    // Cleanup
     return () => {
       socket.off('new-message', handleNewMessage)
       socket.off('user-typing', handleTyping)
@@ -226,20 +237,9 @@ function ChatWindow() {
       socket.off('message-status-update', handleMessageStatusUpdate)
       socket.emit('leave-channel', channelId)
     }
-  }, [channelId, queryClient])
+  }, [channelId]) // Only channelId - no function dependencies
 
-  /**
-   * Handle new message
-   * Why: Add new message to chat
-   * How: Messages are handled via WebSocket and React Query
-   * Impact: Real-time message updates in chat
-   */
-  const handleNewMessage = (message) => {
-    // Message will be added via WebSocket
-    // React Query will automatically refetch
-    console.log('[ChatWindow] Message sent:', message)
-  }
-
+  // Loading state
   if (channelLoading || messagesLoading) {
     return (
       <div className="flex-1 flex items-center justify-center">
@@ -248,8 +248,8 @@ function ChatWindow() {
     )
   }
 
+  // Error state
   if (channelError || !channel) {
-    // Check if error is due to unauthorized access to private channel
     const isUnauthorized = channelError?.response?.status === 403 || 
                           channelError?.status === 403 ||
                           (channelError?.message && channelError.message.includes('Access denied'))
@@ -258,9 +258,7 @@ function ChatWindow() {
       <div className="flex-1 flex items-center justify-center p-4">
         <div className="text-center space-y-2">
           <p className="text-destructive font-semibold">
-            {isUnauthorized 
-              ? "Access Denied" 
-              : "Error loading channel"}
+            {isUnauthorized ? "Access Denied" : "Error loading channel"}
           </p>
           <p className="text-sm text-muted-foreground">
             {isUnauthorized 
@@ -279,7 +277,7 @@ function ChatWindow() {
       animate={{ opacity: 1, y: 0 }}
       transition={{ type: "spring", stiffness: 100 }}
     >
-      {/* Channel Header - Fixed */}
+      {/* Channel Header */}
       <motion.div
         className="border-b border-primary/20 p-3 sm:p-4 bg-card/95 backdrop-blur-sm flex-shrink-0"
         initial={{ y: -10, opacity: 0 }}
@@ -293,7 +291,6 @@ function ChatWindow() {
           <p className="text-xs sm:text-sm text-muted-foreground mt-1">{channel.description}</p>
         )}
         
-        {/* Privacy Notice */}
         <motion.div
           className="mt-2 p-2 bg-primary/10 border border-primary/20 rounded-md"
           initial={{ opacity: 0, y: -5 }}
@@ -302,41 +299,34 @@ function ChatWindow() {
         >
           <p className="text-xs text-muted-foreground flex items-center gap-2">
             <span className="text-primary">🔒</span>
-            <span>For privacy, we will be deleting conversation after 48 hours.</span>
+            <span>For privacy, your messages will be automatically deleted after 8 hours.</span>
           </p>
         </motion.div>
       </motion.div>
 
-      {/* Messages List - Scrollable (takes remaining space) */}
+      {/* Messages List */}
       <div className="flex-1 overflow-y-auto min-h-0">
-        {messagesLoading ? (
-          <div className="flex items-center justify-center h-full">
-            <p className="text-muted-foreground">Loading messages...</p>
-          </div>
-        ) : (
-          <MessageList messages={messages} channelId={channelId} conversationId={null} />
-        )}
+        <MessageList messages={messages} channelId={channelId} conversationId={null} />
       </div>
 
-      {/* Typing Indicator - Fixed above input */}
+      {/* Typing Indicator */}
       {typingUsers.length > 0 && (
         <div className="flex-shrink-0">
           <TypingIndicator typingUsers={typingUsers} />
         </div>
       )}
 
-      {/* Message Input - Fixed at bottom (always in viewport) */}
+      {/* Message Input */}
       <motion.div
         className="border-t border-primary/20 p-2 sm:p-3 md:p-4 bg-card/95 backdrop-blur-sm flex-shrink-0"
         initial={{ y: 10, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ delay: 0.2 }}
       >
-        <MessageInput channelId={channelId} onMessageSent={handleNewMessage} />
+        <MessageInput channelId={channelId} onMessageSent={() => {}} />
       </motion.div>
     </motion.div>
   )
 }
 
 export default ChatWindow
-

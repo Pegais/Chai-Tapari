@@ -114,7 +114,7 @@ function MainLayout() {
           <Menu className="h-5 w-5" />
         </Button>
         <h1 className="text-lg font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
-          CHAI-TAPRI
+          NUBEE
         </h1>
         <Button
           variant="ghost"

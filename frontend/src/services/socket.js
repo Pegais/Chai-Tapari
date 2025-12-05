@@ -30,15 +30,22 @@ const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || process.env.REACT_APP_API
  * Impact: Prevents multiple connections
  */
 let socket = null
+let isConnecting = false // Track connection state to prevent multiple simultaneous connections
 
 /**
  * Get or create socket instance
  * Why: Provide socket connection to components
- * How: Creates socket if not exists, reuses if exists
+ * How: Creates socket if not exists, reuses if exists, properly cleans up old connections
  * Impact: Single connection shared across application
  */
 export const getSocket = () => {
+  // If socket exists and is connected, return it
   if (socket && socket.connected) {
+    return socket
+  }
+
+  // If socket exists but is connecting, wait a bit and return it
+  if (socket && isConnecting) {
     return socket
   }
 
@@ -48,6 +55,17 @@ export const getSocket = () => {
     console.warn('[Socket] No token available, cannot connect')
     return null
   }
+
+  // CRITICAL: Disconnect any existing socket before creating a new one
+  // This prevents multiple connections on page reload
+  if (socket) {
+    console.log('[Socket] Disconnecting existing socket before creating new one')
+    socket.removeAllListeners() // Remove all event listeners
+    socket.disconnect() // Disconnect the socket
+    socket = null
+  }
+
+  isConnecting = true
 
   // Create socket connection
   socket = io(SOCKET_URL, {
@@ -59,19 +77,29 @@ export const getSocket = () => {
     reconnectionDelay: 1000,
     reconnectionDelayMax: 5000,
     reconnectionAttempts: 5,
+    forceNew: true, // Force new connection (don't reuse)
+    multiplex: false, // Disable multiplexing to ensure single connection
   })
 
   // Connection event handlers
   socket.on('connect', () => {
-    console.log('[Socket] Connected to server')
+    console.log('[Socket] Connected to server, socket ID:', socket.id)
+    isConnecting = false
   })
 
   socket.on('disconnect', (reason) => {
     console.log('[Socket] Disconnected:', reason)
+    isConnecting = false
+    
+    // If disconnect was intentional (e.g., logout), don't reconnect
+    if (reason === 'io client disconnect') {
+      socket = null
+    }
   })
 
   socket.on('connect_error', (error) => {
     console.error('[Socket] Connection error:', error)
+    isConnecting = false
   })
 
   socket.on('error', (error) => {
@@ -83,14 +111,17 @@ export const getSocket = () => {
 
 /**
  * Disconnect socket
- * Why: Clean up socket connection
- * How: Disconnects and clears socket instance
- * Impact: Proper cleanup on logout
+ * Why: Clean up socket connection properly
+ * How: Removes all listeners, disconnects, and clears socket instance
+ * Impact: Proper cleanup on logout prevents connection leaks
  */
 export const disconnectSocket = () => {
   if (socket) {
-    socket.disconnect()
+    console.log('[Socket] Disconnecting and cleaning up...')
+    socket.removeAllListeners() // Remove all event listeners to prevent leaks
+    socket.disconnect() // Disconnect the socket
     socket = null
+    isConnecting = false
     console.log('[Socket] Disconnected and cleared')
   }
 }
@@ -98,11 +129,26 @@ export const disconnectSocket = () => {
 /**
  * Reconnect socket
  * Why: Re-establish connection after token update
- * How: Disconnects and creates new connection
- * Impact: Socket uses updated authentication
+ * How: Properly disconnects old socket and creates new connection
+ * Impact: Socket uses updated authentication without connection leaks
  */
 export const reconnectSocket = () => {
   disconnectSocket()
-  return getSocket()
+  // Small delay to ensure old socket is fully cleaned up
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      resolve(getSocket())
+    }, 100)
+  })
+}
+
+/**
+ * Check if socket is connected
+ * Why: Verify connection status before operations
+ * How: Returns true if socket exists and is connected
+ * Impact: Prevents operations on disconnected sockets
+ */
+export const isSocketConnected = () => {
+  return socket !== null && socket.connected
 }
 

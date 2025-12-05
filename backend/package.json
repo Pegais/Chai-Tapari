@@ -1,7 +1,7 @@
 {
-  "name": "chai-tapri-backend",
+  "name": "nubee-backend",
   "version": "1.0.0",
-  "description": "Backend API server for Chai Tapri team chat application",
+  "description": "Backend API server for NuBee team chat application",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",

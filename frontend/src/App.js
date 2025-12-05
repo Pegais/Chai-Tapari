@@ -19,6 +19,7 @@ import Signup from "./components/Auth/Signup"
 import MainLayout from "./components/Layout/MainLayout"
 import ChatWindow from "./components/Chat/ChatWindow"
 import DirectMessageWindow from "./components/DirectMessages/DirectMessageWindow"
+import MessageQueueManager from "./components/MessageQueueManager"
 import { useChannels } from "./hooks/useChannels"
 
 // Get Google Client ID from environment
@@ -107,6 +108,7 @@ function App() {
         <QueryClientProvider client={queryClient}>
           <AuthProvider>
             <SocketProvider>
+              <MessageQueueManager />
               <AnimatePresence mode="wait">
                 <Routes>
                   {/* Home Page - Public Route */}

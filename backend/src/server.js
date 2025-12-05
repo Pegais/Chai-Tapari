@@ -99,7 +99,7 @@ const startServer = async () => {
     socketHandler(io, redisClient)
 
     // Start message cleanup scheduler
-    // Why: Automatically delete messages older than 48 hours
+    // Why: Automatically delete messages older than 8 hours
     // How: Runs cleanup job every hour
     // Impact: Maintains user privacy by removing old conversations
     startCleanupScheduler()
@@ -111,7 +111,7 @@ const startServer = async () => {
       if (!redisClient) {
         logger.warn('[Redis] Running without Redis - presence tracking and session storage disabled')
       }
-      logger.info('[Privacy] Messages will be automatically deleted after 48 hours')
+      logger.info('[Privacy] Messages will be automatically deleted after 8 hours')
     })
 
     // Graceful shutdown

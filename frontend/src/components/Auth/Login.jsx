@@ -150,7 +150,7 @@ function Login() {
             </motion.div>
             <motion.div variants={itemVariants}>
               <CardDescription className="text-center text-sm sm:text-base md:text-lg">
-                Sign in to your Chai Tapri account
+                Sign in to your NuBee account
               </CardDescription>
             </motion.div>
           </CardHeader>

@@ -36,20 +36,39 @@ export function SocketProvider({ children }) {
       if (socketInstance) {
         setSocket(socketInstance)
 
-        socketInstance.on('connect', () => {
-          console.log('[Socket] Connected')
+        const handleConnect = () => {
+          console.log('[SocketContext] Connected')
           setIsConnected(true)
-        })
+        }
 
-        socketInstance.on('disconnect', () => {
-          console.log('[Socket] Disconnected')
+        const handleDisconnect = () => {
+          console.log('[SocketContext] Disconnected')
           setIsConnected(false)
-        })
+        }
 
-        socketInstance.on('connect_error', (error) => {
-          console.error('[Socket] Connection error:', error)
+        const handleConnectError = (error) => {
+          console.error('[SocketContext] Connection error:', error)
           setIsConnected(false)
-        })
+        }
+
+        // Set up listeners
+        socketInstance.on('connect', handleConnect)
+        socketInstance.on('disconnect', handleDisconnect)
+        socketInstance.on('connect_error', handleConnectError)
+
+        // Check if already connected
+        if (socketInstance.connected) {
+          setIsConnected(true)
+        }
+
+        // Cleanup function to remove listeners
+        return () => {
+          if (socketInstance) {
+            socketInstance.off('connect', handleConnect)
+            socketInstance.off('disconnect', handleDisconnect)
+            socketInstance.off('connect_error', handleConnectError)
+          }
+        }
       }
     } else {
       // Disconnect if not authenticated
@@ -57,26 +76,28 @@ export function SocketProvider({ children }) {
       setSocket(null)
       setIsConnected(false)
     }
-
-    return () => {
-      // Cleanup on unmount
-      if (!isAuthenticated) {
-        disconnectSocket()
-      }
-    }
   }, [isAuthenticated, token])
 
   /**
-   * Reconnect socket when token changes
-   * Why: Update socket connection with new token
-   * How: Disconnects and creates new connection
-   * Impact: Socket uses updated authentication
+   * Handle page unload - cleanup socket
+   * Why: Ensure socket is properly closed when page is closed/reloaded
+   * How: Disconnects socket on beforeunload and pagehide events
+   * Impact: Prevents socket connection leaks on page reload
    */
   useEffect(() => {
-    if (isAuthenticated && token && socket) {
-      reconnectSocket()
+    const handleBeforeUnload = () => {
+      console.log('[SocketContext] Page unloading, disconnecting socket')
+      disconnectSocket()
     }
-  }, [token])
+
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    window.addEventListener('pagehide', handleBeforeUnload) // For mobile browsers
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+      window.removeEventListener('pagehide', handleBeforeUnload)
+    }
+  }, [])
 
   const value = {
     socket,

@@ -30,7 +30,7 @@
   <!-- Border accent -->
   <rect x="2" y="2" width="60" height="60" rx="10" fill="none" stroke="url(#textGradient)" stroke-width="1.5" opacity="0.3"/>
   
-  <!-- CT Text with Valorant colors and glow -->
+  <!-- NB Text with Valorant colors and glow -->
   <text 
     x="32" 
     y="42" 
@@ -41,7 +41,7 @@
     fill="url(#textGradient)"
     filter="url(#glow)"
     style="letter-spacing: -2px; font-stretch: condensed;">
-    CT
+    NB
   </text>
 </svg>
 
