@@ -112,12 +112,20 @@ export const getSocket = () => {
 /**
  * Disconnect socket
  * Why: Clean up socket connection properly
- * How: Removes all listeners, disconnects, and clears socket instance
- * Impact: Proper cleanup on logout prevents connection leaks
+ * How: Emits logout event, removes all listeners, disconnects, and clears socket instance
+ * Impact: Proper cleanup on logout prevents connection leaks and notifies server
  */
 export const disconnectSocket = () => {
   if (socket) {
     console.log('[Socket] Disconnecting and cleaning up...')
+    
+    // Emit logout event to notify server BEFORE disconnecting
+    // This ensures other users see us go offline immediately
+    if (socket.connected) {
+      socket.emit('logout')
+      console.log('[Socket] Logout event emitted')
+    }
+    
     socket.removeAllListeners() // Remove all event listeners to prevent leaks
     socket.disconnect() // Disconnect the socket
     socket = null

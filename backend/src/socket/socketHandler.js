@@ -571,19 +571,67 @@ const socketHandler = (io, redisClient) => {
         }
       })
 
+      // Handle explicit logout event (before socket disconnect)
+      socket.on('logout', async () => {
+        try {
+          logger.info(`User ${user.username} (${userId}) explicitly logging out`)
+          
+          // Immediately mark user as offline
+          await User.findByIdAndUpdate(userId, {
+            $set: {
+              isOnline: false,
+              socketIds: [],
+              lastSeen: new Date(),
+            }
+          })
+          
+          // Remove from Redis presence set (if Redis available)
+          if (redisClient) {
+            try {
+              await redisClient.sRem('online_users', userId)
+            } catch (error) {
+              logger.warn('[Redis] Failed to remove user from online set:', error.message)
+            }
+          }
+          
+          // Emit offline status to all users IMMEDIATELY
+          io.emit('user:offline', { 
+            userId,
+            user: {
+              _id: user._id,
+              username: user.username,
+              email: user.email,
+              avatar: user.avatar,
+            },
+          })
+          
+          logger.info(`User ${user.username} marked offline via explicit logout`)
+        } catch (error) {
+          logger.error('Error handling logout event:', error)
+        }
+      })
+
       // Handle disconnection
       socket.on('disconnect', async () => {
         try {
-          const user = await User.findById(userId)
+          const currentUser = await User.findById(userId)
 
-          if (user) {
-            // Remove socket ID
-            user.socketIds = user.socketIds.filter(id => id !== socket.id)
+          if (currentUser) {
+            // Remove socket ID using atomic operation
+            const updatedUser = await User.findByIdAndUpdate(
+              userId,
+              { $pull: { socketIds: socket.id } },
+              { new: true }
+            )
 
             // If no more socket IDs, mark offline
-            if (user.socketIds.length === 0) {
-              user.isOnline = false
-              user.lastSeen = new Date()
+            if (updatedUser && updatedUser.socketIds.length === 0) {
+              await User.findByIdAndUpdate(userId, {
+                $set: {
+                  isOnline: false,
+                  lastSeen: new Date(),
+                }
+              })
               
               // Remove from Redis presence set (if Redis available)
               if (redisClient) {
@@ -598,17 +646,17 @@ const socketHandler = (io, redisClient) => {
               io.emit('user:offline', { 
                 userId,
                 user: {
-                  _id: user._id,
-                  username: user.username,
-                  email: user.email,
-                  avatar: user.avatar,
+                  _id: currentUser._id,
+                  username: currentUser.username,
+                  email: currentUser.email,
+                  avatar: currentUser.avatar,
                 },
               })
+              
+              logger.info(`User disconnected and marked offline: ${currentUser.username} (${userId})`)
+            } else {
+              logger.info(`User disconnected: ${currentUser.username} (${userId}), socketIds remaining: ${updatedUser?.socketIds?.length || 0}`)
             }
-
-            await user.save()
-
-            logger.info(`User disconnected: ${user.username} (${userId}), socketIds remaining: ${user.socketIds.length}`)
           }
         } catch (error) {
           logger.error('Error handling disconnect:', error)
