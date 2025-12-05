@@ -20,6 +20,17 @@ const mongoose = require('mongoose')
  * Impact: Enables message creation, editing, deletion, and retrieval
  */
 const messageSchema = new mongoose.Schema({
+  /**
+   * Client Message ID (Idempotency Key)
+   * Why: Prevent duplicate messages on network retries
+   * How: Client generates unique ID, server uses upsert with $setOnInsert
+   * Impact: Guarantees exactly-once message delivery even with retries
+   */
+  clientMessageId: {
+    type: String,
+    sparse: true, // Allow null values but ensure uniqueness when present
+    index: true,
+  },
   sender: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
@@ -139,6 +150,17 @@ messageSchema.index({ channel: 1, timestamp: -1 })
 messageSchema.index({ conversation: 1, timestamp: -1 })
 messageSchema.index({ sender: 1, timestamp: -1 })
 messageSchema.index({ isDeleted: 1 })
+
+/**
+ * Unique compound index for idempotency
+ * Why: Ensure same clientMessageId from same sender is only inserted once
+ * How: Compound unique index on sender + clientMessageId (sparse to allow nulls)
+ * Impact: Prevents duplicate messages on network retries
+ */
+messageSchema.index(
+  { sender: 1, clientMessageId: 1 }, 
+  { unique: true, sparse: true, partialFilterExpression: { clientMessageId: { $exists: true, $ne: null } } }
+)
 
 /**
  * Pre-save validation

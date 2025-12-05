@@ -17,20 +17,26 @@ const Message = require('../models/Message')
 const Channel = require('../models/Channel')
 
 /**
- * Create new message
- * Why: Allow users to send messages in channels
- * How: Validates channel membership, creates message document
- * Impact: Message appears in channel for all members
+ * Create new message (Idempotent)
+ * Why: Allow users to send messages in channels with exactly-once delivery
+ * How: Uses MongoDB atomic upsert with $setOnInsert for idempotency
+ * Impact: Message appears in channel for all members, no duplicates on retry
+ * 
+ * Idempotency Implementation:
+ * - Client sends clientMessageId (unique per message attempt)
+ * - Server uses updateOne() with upsert=true and $setOnInsert
+ * - If clientMessageId exists, no new document is created (CAS pattern)
+ * - MongoDB guarantees atomicity per document
  * 
  * Flow:
  * 1. Verify channel exists
  * 2. Check if user is channel member
- * 3. Create message document
- * 4. Save and populate sender information
- * 5. Return message
+ * 3. Use atomic upsert with $setOnInsert for idempotent insert
+ * 4. Populate sender information
+ * 5. Return message (existing or newly created)
  */
 const createMessage = async (messageData, senderId) => {
-  const { channelId, content, messageType, attachments, linkPreview, videoEmbed } = messageData
+  const { channelId, content, messageType, attachments, linkPreview, videoEmbed, clientMessageId } = messageData
 
   // Verify channel exists
   const channel = await Channel.findById(channelId)
@@ -66,19 +72,65 @@ const createMessage = async (messageData, senderId) => {
     )
   }
 
-  // Create message
-  const message = new Message({
+  const timestamp = new Date()
+  const messageFields = {
     sender: senderId,
     channel: channelId,
-    content,
+    content: content || '',
     messageType: messageType || 'text',
     attachments: attachments || [],
     linkPreview: linkPreview || null,
     videoEmbed: videoEmbed || null,
-  })
+    timestamp,
+    status: 'sent',
+    isDeleted: false,
+  }
 
-  await message.save()
-  await message.populate('sender', 'username email avatar')
+  let message
+
+  // If clientMessageId provided, use idempotent upsert (CAS pattern)
+  if (clientMessageId) {
+    /**
+     * Idempotent Insert using MongoDB Atomic Upsert
+     * Why: Guarantee exactly-once message creation even with network retries
+     * How: updateOne() with upsert=true and $setOnInsert only sets fields on insert
+     * Impact: If clientMessageId already exists for this sender, no duplicate is created
+     * 
+     * MongoDB Atomicity Guarantee:
+     * - updateOne() is atomic per document
+     * - $setOnInsert only applies when a new document is inserted
+     * - upsert: true creates document if filter doesn't match
+     */
+    const result = await Message.updateOne(
+      { 
+        sender: senderId, 
+        clientMessageId: clientMessageId 
+      },
+      { 
+        $setOnInsert: {
+          ...messageFields,
+          clientMessageId,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        }
+      },
+      { upsert: true }
+    )
+
+    // Fetch the message (whether newly created or existing)
+    message = await Message.findOne({ sender: senderId, clientMessageId })
+      .populate('sender', 'username email avatar')
+
+    // Log if this was a duplicate (retry)
+    if (result.upsertedCount === 0) {
+      console.log(`[MessageService] Idempotent: Message ${clientMessageId} already exists (retry detected)`)
+    }
+  } else {
+    // Fallback: No clientMessageId, use traditional insert (backwards compatible)
+    message = new Message(messageFields)
+    await message.save()
+    await message.populate('sender', 'username email avatar')
+  }
 
   return message
 }

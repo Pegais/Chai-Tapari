@@ -615,6 +615,14 @@ function DirectMessageWindow() {
       // Create optimistic message with unique ID
       const optimisticMessageId = `temp-${Date.now()}-${Math.random()}`
       
+      /**
+       * Generate Client Message ID (Idempotency Key)
+       * Why: Prevent duplicate messages on network retries
+       * How: Unique ID sent with message, server uses for atomic upsert
+       * Impact: Guarantees exactly-once delivery even with retries
+       */
+      const clientMessageId = `${currentUser._id}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+      
       // Add message to IndexedDB queue BEFORE sending
       let queueId = null
       try {
@@ -627,6 +635,7 @@ function DirectMessageWindow() {
             email: currentUser.email,
             avatar: currentUser.avatar,
           },
+          clientMessageId, // Include idempotency key in queue
           ...messageData,
         }, 'direct', optimisticMessageId)
       } catch (queueError) {
@@ -635,6 +644,7 @@ function DirectMessageWindow() {
 
       const optimisticMessage = {
         _id: optimisticMessageId,
+        clientMessageId, // Include for tracking
         sender: {
           _id: currentUser._id,
           username: currentUser.username,
@@ -658,7 +668,7 @@ function DirectMessageWindow() {
         useDirectMessageStore.getState().mergeMessage(activeConversationId, optimisticMessage)
       }
 
-      // Send message with timeout and error handling
+      // Send message with timeout and error handling (includes idempotency key)
       const sendPromise = new Promise((resolve, reject) => {
         const timeout = setTimeout(() => {
           reject(new Error('Message send timeout. Please check your connection.'))
@@ -666,7 +676,10 @@ function DirectMessageWindow() {
 
         if (socket && socket.connected) {
           try {
-            socket.emit('send-direct-message', messageData)
+            socket.emit('send-direct-message', {
+              ...messageData,
+              clientMessageId, // Idempotency key for exactly-once delivery
+            })
             setTimeout(() => {
               clearTimeout(timeout)
               resolve()
@@ -677,7 +690,10 @@ function DirectMessageWindow() {
           }
         } else {
           clearTimeout(timeout)
-          sendDirectMessageMutation.mutateAsync(messageData)
+          sendDirectMessageMutation.mutateAsync({
+            ...messageData,
+            clientMessageId, // Include idempotency key
+          })
             .then(() => resolve())
             .catch((error) => reject(error))
         }

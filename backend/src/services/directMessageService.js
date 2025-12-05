@@ -46,42 +46,92 @@ const getOrCreateConversation = async (userId1, userId2) => {
 }
 
 /**
- * Send direct message
- * Why: Allow users to send private messages
- * How: Gets or creates conversation, creates message
- * Impact: Message appears in conversation for both users
+ * Send direct message (Idempotent)
+ * Why: Allow users to send private messages with exactly-once delivery
+ * How: Uses MongoDB atomic upsert with $setOnInsert for idempotency
+ * Impact: Message appears in conversation for both users, no duplicates on retry
+ * 
+ * Idempotency Implementation:
+ * - Client sends clientMessageId (unique per message attempt)
+ * - Server uses updateOne() with upsert=true and $setOnInsert
+ * - If clientMessageId exists, no new document is created (CAS pattern)
+ * - MongoDB guarantees atomicity per document
  * 
  * Flow:
  * 1. Get or create conversation
- * 2. Create message document
+ * 2. Use atomic upsert with $setOnInsert for idempotent insert
  * 3. Update conversation lastMessage
  * 4. Populate sender and return
  */
 const sendDirectMessage = async (messageData, senderId) => {
-  const { recipientId, content, messageType, attachments, linkPreview, videoEmbed } = messageData
+  const { recipientId, content, messageType, attachments, linkPreview, videoEmbed, clientMessageId } = messageData
 
   // Get or create conversation
   const conversation = await getOrCreateConversation(senderId, recipientId)
 
-  // Create message
-  const message = new Message({
+  const timestamp = new Date()
+  const messageFields = {
     sender: senderId,
     conversation: conversation._id,
-    content,
+    content: content || '',
     messageType: messageType || 'text',
     attachments: attachments || [],
     linkPreview: linkPreview || null,
     videoEmbed: videoEmbed || null,
-  })
+    timestamp,
+    status: 'sent',
+    isDeleted: false,
+  }
 
-  await message.save()
+  let message
+  let isNewMessage = true
 
-  // Update conversation
-  conversation.lastMessage = message._id
-  conversation.lastMessageAt = message.timestamp
-  await conversation.save()
+  // If clientMessageId provided, use idempotent upsert (CAS pattern)
+  if (clientMessageId) {
+    /**
+     * Idempotent Insert using MongoDB Atomic Upsert
+     * Why: Guarantee exactly-once message creation even with network retries
+     * How: updateOne() with upsert=true and $setOnInsert only sets fields on insert
+     * Impact: If clientMessageId already exists for this sender, no duplicate is created
+     */
+    const result = await Message.updateOne(
+      { 
+        sender: senderId, 
+        clientMessageId: clientMessageId 
+      },
+      { 
+        $setOnInsert: {
+          ...messageFields,
+          clientMessageId,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        }
+      },
+      { upsert: true }
+    )
 
-  await message.populate('sender', 'username email avatar')
+    // Fetch the message (whether newly created or existing)
+    message = await Message.findOne({ sender: senderId, clientMessageId })
+      .populate('sender', 'username email avatar')
+
+    // Check if this was a duplicate (retry)
+    isNewMessage = result.upsertedCount > 0
+    if (!isNewMessage) {
+      console.log(`[DirectMessageService] Idempotent: Message ${clientMessageId} already exists (retry detected)`)
+    }
+  } else {
+    // Fallback: No clientMessageId, use traditional insert (backwards compatible)
+    message = new Message(messageFields)
+    await message.save()
+    await message.populate('sender', 'username email avatar')
+  }
+
+  // Only update conversation if this is a new message (not a retry)
+  if (isNewMessage) {
+    conversation.lastMessage = message._id
+    conversation.lastMessageAt = message.timestamp
+    await conversation.save()
+  }
 
   return message
 }

@@ -209,38 +209,34 @@ function Login() {
               </motion.div>
 
               {/* Google Sign In Button */}
-              {process.env.REACT_APP_GOOGLE_CLIENT_ID && (
-                <>
-                  <motion.div className="relative flex items-center gap-4 my-4" variants={itemVariants}>
-                    <div className="flex-1 h-px bg-primary/20"></div>
-                    <span className="text-sm text-muted-foreground">OR</span>
-                    <div className="flex-1 h-px bg-primary/20"></div>
-                  </motion.div>
-                  <motion.div variants={itemVariants} className="w-full">
-                    <div className="flex justify-center">
-                      <GoogleLogin
-                        onSuccess={handleGoogleSuccess}
-                        onError={handleGoogleError}
-                        disabled={loading || googleLoading}
-                        useOneTap={false}
-                        theme="outline"
-                        size="large"
-                        text="signin_with"
-                        shape="rectangular"
-                        logo_alignment="left"
-                        width="100%"
-                        containerProps={{
-                          style: {
-                            width: '100%',
-                            display: 'flex',
-                            justifyContent: 'center',
-                          }
-                        }}
-                      />
-                    </div>
-                  </motion.div>
-                </>
-              )}
+              <motion.div className="relative flex items-center gap-4 my-4" variants={itemVariants}>
+                <div className="flex-1 h-px bg-primary/20"></div>
+                <span className="text-sm text-muted-foreground">OR</span>
+                <div className="flex-1 h-px bg-primary/20"></div>
+              </motion.div>
+              <motion.div variants={itemVariants} className="w-full">
+                <div className="flex justify-center">
+                  <GoogleLogin
+                    onSuccess={handleGoogleSuccess}
+                    onError={handleGoogleError}
+                    disabled={loading || googleLoading}
+                    useOneTap={false}
+                    theme="outline"
+                    size="large"
+                    text="signin_with"
+                    shape="rectangular"
+                    logo_alignment="left"
+                    width="100%"
+                    containerProps={{
+                      style: {
+                        width: '100%',
+                        display: 'flex',
+                        justifyContent: 'center',
+                      }
+                    }}
+                  />
+                </div>
+              </motion.div>
 
               <motion.div className="text-center text-sm sm:text-base text-muted-foreground pt-2 md:pt-4" variants={itemVariants}>
                 Don't have an account?{" "}

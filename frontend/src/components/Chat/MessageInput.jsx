@@ -406,6 +406,14 @@ function MessageInput({ channelId, onMessageSent }) {
       // Create optimistic message with status tracking
       const optimisticMessageId = `temp-${Date.now()}-${Math.random()}`
       
+      /**
+       * Generate Client Message ID (Idempotency Key)
+       * Why: Prevent duplicate messages on network retries
+       * How: Unique ID sent with message, server uses for atomic upsert
+       * Impact: Guarantees exactly-once delivery even with retries
+       */
+      const clientMessageId = `${user._id}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+      
       // Add message to IndexedDB queue BEFORE sending (persistent storage)
       let queueId = null
       try {
@@ -417,6 +425,7 @@ function MessageInput({ channelId, onMessageSent }) {
             email: user.email,
             avatar: user.avatar,
           },
+          clientMessageId, // Include idempotency key in queue
           ...messageData,
         }, 'channel', optimisticMessageId)
       } catch (queueError) {
@@ -426,6 +435,7 @@ function MessageInput({ channelId, onMessageSent }) {
 
       const optimisticMessage = {
         _id: optimisticMessageId,
+        clientMessageId, // Include for tracking
         sender: {
           _id: user._id,
           username: user.username,
@@ -456,10 +466,11 @@ function MessageInput({ channelId, onMessageSent }) {
         }, 10000) // 10 second timeout
 
         if (socket && socket.connected) {
-          // Send via WebSocket with error handling
+          // Send via WebSocket with error handling (includes idempotency key)
           try {
             socket.emit('send-message', {
               channelId,
+              clientMessageId, // Idempotency key for exactly-once delivery
               ...messageData,
             })
             
@@ -474,11 +485,11 @@ function MessageInput({ channelId, onMessageSent }) {
             reject(error)
           }
         } else {
-          // Fallback to REST API with timeout
+          // Fallback to REST API with timeout (includes idempotency key)
           clearTimeout(timeout)
           createMessage.mutateAsync({
             channelId,
-            messageData,
+            messageData: { ...messageData, clientMessageId },
           })
             .then(() => {
               resolve()

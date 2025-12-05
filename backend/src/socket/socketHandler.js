@@ -160,10 +160,10 @@ const socketHandler = (io, redisClient) => {
         }
       })
 
-      // Handle send message
+      // Handle send message (Idempotent)
       socket.on('send-message', async (messageData) => {
         try {
-          const { channelId, content, messageType, attachments, linkPreview, videoEmbed } = messageData
+          const { channelId, content, messageType, attachments, linkPreview, videoEmbed, clientMessageId } = messageData
 
           const message = await messageService.createMessage({
             channelId,
@@ -172,6 +172,7 @@ const socketHandler = (io, redisClient) => {
             attachments: attachments || [],
             linkPreview: linkPreview || null,
             videoEmbed: videoEmbed || null,
+            clientMessageId: clientMessageId || null, // Idempotency key
           }, userId)
 
           await message.populate('sender', 'username email avatar')
@@ -464,10 +465,10 @@ const socketHandler = (io, redisClient) => {
         }
       })
 
-      // Handle send direct message
+      // Handle send direct message (Idempotent)
       socket.on('send-direct-message', async (messageData) => {
         try {
-          const { recipientId, content, messageType, attachments, linkPreview, videoEmbed } = messageData
+          const { recipientId, content, messageType, attachments, linkPreview, videoEmbed, clientMessageId } = messageData
 
           const directMessageService = require('../services/directMessageService')
           const message = await directMessageService.sendDirectMessage({
@@ -477,6 +478,7 @@ const socketHandler = (io, redisClient) => {
             attachments: attachments || [],
             linkPreview: linkPreview || null,
             videoEmbed: videoEmbed || null,
+            clientMessageId: clientMessageId || null, // Idempotency key
           }, userId)
 
           await message.populate('sender', 'username email avatar')
