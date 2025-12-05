@@ -131,7 +131,7 @@ function ProfileSection() {
   )
 
   return (
-    <div className="h-full flex flex-col bg-card/95 backdrop-blur-sm border-r border-primary/20 overflow-hidden">
+    <div className="h-full flex flex-col bg-card/95 backdrop-blur-sm border-r border-primary/20 overflow-hidden" style={{width:"100%"}}>
       {/* Profile Header - Fixed */}
       <motion.div
         className="p-4 md:p-6 border-b border-primary/20 flex-shrink-0"
